@@ -1,1 +1,1 @@
-# Sistem-de-Management-Universitar
+# Sistem de Management Universitar
