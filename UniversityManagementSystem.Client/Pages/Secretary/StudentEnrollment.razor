@@ -1,0 +1,383 @@
+@page "/secretary/students"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = Roles.Secretary + "," + Roles.Admin)]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+@inject HttpClient Http
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Student Enrollment Management</MudText>
+    
+    <MudTable Items="@studentsWithDetails" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info" Filter="new Func<StudentWithDetails,bool>(FilterFunc)">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Students</MudText>
+            <MudSpacer />
+            <MudTextField @bind-Value="searchString" Placeholder="Search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddDialog" StartIcon="@Icons.Material.Filled.Add">Add Student</MudButton>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Email</MudTh>
+            <MudTh>Registration Number</MudTh>
+            <MudTh>Group</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Enrollment Date</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.FirstName @context.LastName</MudTd>
+            <MudTd DataLabel="Email">@context.Email</MudTd>
+            <MudTd DataLabel="Registration Number">@context.RegistrationNumber</MudTd>
+            <MudTd DataLabel="Group">@context.GroupName</MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Size="Size.Small" Color="GetStatusColor(context.Status)">@context.Status</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Enrollment Date">@context.EnrollmentDate?.ToString("yyyy-MM-dd")</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditStudent(context))" />
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudContainer>
+
+<MudDialog @bind-Visible="dialogVisible" Options="dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(isEditing ? "Edit Student" : "Add New Student")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="editingStudent.FirstName" Label="First Name" Required="true" />
+        <MudTextField @bind-Value="editingStudent.LastName" Label="Last Name" Required="true" />
+        <MudTextField @bind-Value="editingStudent.Email" Label="Email" Required="true" InputType="InputType.Email" />
+        
+        @if (!isEditing)
+        {
+            <MudTextField @bind-Value="tempPassword" Label="Temporary Password" Required="true" InputType="InputType.Password" />
+        }
+
+        <MudSelect T="long?" Value="selectedFacultyId" ValueChanged="OnFacultyChanged" Label="Faculty" Required="true">
+            @foreach (var faculty in faculties)
+            {
+                <MudSelectItem T="long?" Value="@faculty.Id">@faculty.Name</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudSelect T="long?" Value="selectedProgramId" ValueChanged="OnProgramChanged" Label="Program" Required="true" Disabled="@(selectedFacultyId == null)">
+            @foreach (var program in filteredPrograms)
+            {
+                <MudSelectItem T="long?" Value="@program.Id">@program.Name</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudSelect T="long?" @bind-Value="editingStudent.GroupId" Label="Group" Required="true" Disabled="@(selectedProgramId == null)">
+            @foreach (var group in filteredGroups)
+            {
+                <MudSelectItem T="long?" Value="@group.Id">@group.Name</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudTextField @bind-Value="editingStudent.RegistrationNumber" Label="Registration Number" Required="true" />
+        
+        <MudSelect T="string" @bind-Value="editingStudent.Status" Label="Status">
+            <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
+            <MudSelectItem T="string" Value="@("suspended")">Suspended</MudSelectItem>
+            <MudSelectItem T="string" Value="@("graduated")">Graduated</MudSelectItem>
+            <MudSelectItem T="string" Value="@("withdrawn")">Withdrawn</MudSelectItem>
+            <MudSelectItem T="string" Value="@("expelled")">Expelled</MudSelectItem>
+        </MudSelect>
+
+        <MudDatePicker @bind-Date="enrollmentDate" Label="Enrollment Date" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseDialog">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="SaveStudent">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<StudentWithDetails> studentsWithDetails = new();
+    private List<Profile> profiles = new();
+    private List<Student> students = new();
+    private List<Faculty> faculties = new();
+    private List<StudyProgram> programs = new();
+    private List<Group> groups = new();
+    private List<StudyProgram> filteredPrograms = new();
+    private List<Group> filteredGroups = new();
+    
+    private bool loading = true;
+    private bool dialogVisible;
+    private bool isEditing;
+    private string searchString = "";
+    private string tempPassword = "";
+    
+    private StudentWithDetails editingStudent = new();
+    private long? selectedFacultyId;
+    private long? selectedProgramId;
+    private DateTime? enrollmentDate;
+    
+    private DialogOptions dialogOptions = new() { FullWidth = true, MaxWidth = MaxWidth.Medium };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        loading = true;
+        try
+        {
+            await Task.WhenAll(
+                LoadFaculties(),
+                LoadPrograms(),
+                LoadGroups(),
+                LoadProfiles(),
+                LoadStudents()
+            );
+            BuildStudentDetails();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
+        }
+        loading = false;
+    }
+
+    private async Task LoadFaculties()
+    {
+        var response = await Supabase.From<Faculty>().Get();
+        faculties = response.Models;
+    }
+
+    private async Task LoadPrograms()
+    {
+        var response = await Supabase.From<StudyProgram>().Get();
+        programs = response.Models;
+    }
+
+    private async Task LoadGroups()
+    {
+        var response = await Supabase.From<Group>().Get();
+        groups = response.Models;
+    }
+
+    private async Task LoadProfiles()
+    {
+        var response = await Supabase.From<Profile>().Where(p => p.Role == "student").Get();
+        profiles = response.Models;
+    }
+
+    private async Task LoadStudents()
+    {
+        var response = await Supabase.From<Student>().Get();
+        students = response.Models;
+    }
+
+    private void BuildStudentDetails()
+    {
+        studentsWithDetails = profiles.Select(p =>
+        {
+            var student = students.FirstOrDefault(s => s.Id == p.Id);
+            var group = student?.GroupId.HasValue == true ? groups.FirstOrDefault(g => g.Id == student.GroupId) : null;
+            
+            return new StudentWithDetails
+            {
+                Id = p.Id,
+                Email = p.Email,
+                FirstName = p.FirstName,
+                LastName = p.LastName,
+                GroupId = student?.GroupId,
+                GroupName = group?.Name ?? "Not Assigned",
+                RegistrationNumber = student?.RegistrationNumber ?? "N/A",
+                Status = student?.Status ?? "active",
+                EnrollmentDate = student?.EnrollmentDate
+            };
+        }).ToList();
+    }
+
+    private void OnFacultyChanged(long? facultyId)
+    {
+        selectedFacultyId = facultyId;
+        selectedProgramId = null;
+        editingStudent.GroupId = null;
+        
+        if (facultyId.HasValue)
+        {
+            filteredPrograms = programs.Where(p => p.FacultyId == facultyId).ToList();
+        }
+        else
+        {
+            filteredPrograms = new();
+        }
+        filteredGroups = new();
+    }
+
+    private void OnProgramChanged(long? programId)
+    {
+        selectedProgramId = programId;
+        editingStudent.GroupId = null;
+        
+        if (programId.HasValue)
+        {
+            filteredGroups = groups.Where(g => g.ProgramId == programId).ToList();
+        }
+        else
+        {
+            filteredGroups = new();
+        }
+    }
+
+    private void OpenAddDialog()
+    {
+        isEditing = false;
+        editingStudent = new StudentWithDetails { Status = "active" };
+        selectedFacultyId = null;
+        selectedProgramId = null;
+        filteredPrograms = new();
+        filteredGroups = new();
+        enrollmentDate = DateTime.Now;
+        tempPassword = "";
+        dialogVisible = true;
+    }
+
+    private void EditStudent(StudentWithDetails student)
+    {
+        isEditing = true;
+        editingStudent = new StudentWithDetails
+        {
+            Id = student.Id,
+            Email = student.Email,
+            FirstName = student.FirstName,
+            LastName = student.LastName,
+            GroupId = student.GroupId,
+            RegistrationNumber = student.RegistrationNumber,
+            Status = student.Status,
+            EnrollmentDate = student.EnrollmentDate
+        };
+        enrollmentDate = student.EnrollmentDate;
+        
+        // Set faculty and program based on group
+        if (student.GroupId.HasValue)
+        {
+            var group = groups.FirstOrDefault(g => g.Id == student.GroupId);
+            if (group != null)
+            {
+                selectedProgramId = group.ProgramId;
+                var program = programs.FirstOrDefault(p => p.Id == group.ProgramId);
+                if (program != null)
+                {
+                    selectedFacultyId = program.FacultyId;
+                    OnFacultyChanged(selectedFacultyId);
+                    OnProgramChanged(selectedProgramId);
+                }
+            }
+        }
+        
+        dialogVisible = true;
+    }
+
+    private async Task SaveStudent()
+    {
+        try
+        {
+            if (isEditing)
+            {
+                // Update existing student
+                var profile = new Profile
+                {
+                    Id = editingStudent.Id,
+                    Email = editingStudent.Email,
+                    FirstName = editingStudent.FirstName,
+                    LastName = editingStudent.LastName,
+                    Role = "student"
+                };
+                await Supabase.From<Profile>().Update(profile);
+
+                var student = new Student
+                {
+                    Id = editingStudent.Id,
+                    GroupId = editingStudent.GroupId,
+                    RegistrationNumber = editingStudent.RegistrationNumber,
+                    Status = editingStudent.Status,
+                    EnrollmentDate = enrollmentDate
+                };
+                await Supabase.From<Student>().Upsert(student);
+
+                Snackbar.Add("Student updated successfully", Severity.Success);
+            }
+            else
+            {
+                // Create new student via API
+                var createRequest = new
+                {
+                    email = editingStudent.Email,
+                    password = tempPassword,
+                    firstName = editingStudent.FirstName,
+                    lastName = editingStudent.LastName,
+                    groupId = editingStudent.GroupId,
+                    registrationNumber = editingStudent.RegistrationNumber,
+                    status = editingStudent.Status,
+                    enrollmentDate = enrollmentDate
+                };
+
+                // Note: This would require a special endpoint in the API to create auth user + profile + student
+                // For now, we'll show an error message
+                Snackbar.Add("Student creation requires admin API access. Please use Supabase dashboard to create user first.", Severity.Warning);
+            }
+
+            dialogVisible = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving student: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void CloseDialog()
+    {
+        dialogVisible = false;
+    }
+
+    private bool FilterFunc(StudentWithDetails student)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (student.FirstName?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (student.LastName?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (student.Email?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (student.RegistrationNumber?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        return false;
+    }
+
+    private Color GetStatusColor(string status)
+    {
+        return status switch
+        {
+            "active" => Color.Success,
+            "suspended" => Color.Warning,
+            "graduated" => Color.Info,
+            "withdrawn" => Color.Default,
+            "expelled" => Color.Error,
+            _ => Color.Default
+        };
+    }
+
+    public class StudentWithDetails
+    {
+        public Guid Id { get; set; }
+        public string? Email { get; set; }
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public long? GroupId { get; set; }
+        public string GroupName { get; set; } = "";
+        public string? RegistrationNumber { get; set; }
+        public string Status { get; set; } = "active";
+        public DateTime? EnrollmentDate { get; set; }
+    }
+}

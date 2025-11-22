@@ -1,0 +1,212 @@
+@page "/admin/users"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = Roles.Admin + "," + Roles.Rector)]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">User Management</MudText>
+    
+    <MudTable Items="@profiles" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Users</MudText>
+            <MudSpacer />
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Email</MudTh>
+            <MudTh>Role</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.FirstName @context.LastName</MudTd>
+            <MudTd DataLabel="Email">@context.Email</MudTd>
+            <MudTd DataLabel="Role">
+                <MudChip T="string" Size="Size.Small" Color="GetRoleColor(context.Role)">@context.Role</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Actions">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditProfile(context))" />
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudContainer>
+
+<MudDialog @bind-Visible="visible" Options="dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Edit User Profile</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="editingProfile.FirstName" Label="First Name" />
+        <MudTextField @bind-Value="editingProfile.LastName" Label="Last Name" />
+        <MudTextField @bind-Value="editingProfile.Email" Label="Email" Disabled="true" />
+        <MudSelect T="string" @bind-Value="editingProfile.Role" Label="Role">
+            <MudSelectItem T="string" Value="@Roles.Student">Student</MudSelectItem>
+            <MudSelectItem T="string" Value="@Roles.Professor">Professor</MudSelectItem>
+            <MudSelectItem T="string" Value="@Roles.Dean">Dean</MudSelectItem>
+            <MudSelectItem T="string" Value="@Roles.Rector">Rector</MudSelectItem>
+            <MudSelectItem T="string" Value="@Roles.Secretary">Secretary</MudSelectItem>
+            <MudSelectItem T="string" Value="@Roles.Admin">Admin</MudSelectItem>
+        </MudSelect>
+
+        @if (editingProfile.Role == Roles.Student)
+        {
+            <MudSelect T="long?" @bind-Value="studentGroupId" Label="Group" Clearable="true">
+                @foreach (var group in groups)
+                {
+                    <MudSelectItem T="long?" Value="@group.Id">@group.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+
+        @if (editingProfile.Role == Roles.Professor || editingProfile.Role == Roles.Dean)
+        {
+            <MudSelect T="long?" @bind-Value="professorFacultyId" Label="Faculty" Clearable="true">
+                @foreach (var faculty in faculties)
+                {
+                    <MudSelectItem T="long?" Value="@faculty.Id">@faculty.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<Profile> profiles = new();
+    private List<Faculty> faculties = new();
+    private List<Group> groups = new();
+    private bool loading = true;
+    private bool visible;
+    private Profile editingProfile = new();
+    private long? studentGroupId;
+    private long? professorFacultyId;
+    private DialogOptions dialogOptions = new() { FullWidth = true };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFaculties();
+        await LoadGroups();
+        await LoadProfiles();
+    }
+
+    private async Task LoadFaculties()
+    {
+        try
+        {
+            var response = await Supabase.From<Faculty>().Get();
+            faculties = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading faculties: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task LoadGroups()
+    {
+        try
+        {
+            var response = await Supabase.From<Group>().Get();
+            groups = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading groups: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task LoadProfiles()
+    {
+        loading = true;
+        try
+        {
+            var response = await Supabase.From<Profile>().Get();
+            profiles = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading profiles: {ex.Message}", Severity.Error);
+        }
+        loading = false;
+    }
+
+    private Color GetRoleColor(string role)
+    {
+        return role switch
+        {
+            "admin" => Color.Error,
+            "rector" => Color.Warning,
+            "dean" => Color.Info,
+            "professor" => Color.Primary,
+            "secretary" => Color.Secondary,
+            _ => Color.Default
+        };
+    }
+
+    private async void EditProfile(Profile profile)
+    {
+        editingProfile = new Profile 
+        { 
+            Id = profile.Id, 
+            Email = profile.Email,
+            FirstName = profile.FirstName, 
+            LastName = profile.LastName,
+            Role = profile.Role
+        };
+
+        // Load existing assignments
+        if (profile.Role == Roles.Student)
+        {
+            var studentResponse = await Supabase.From<Student>().Where(s => s.Id == profile.Id).Get();
+            var student = studentResponse.Models.FirstOrDefault();
+            studentGroupId = student?.GroupId;
+        }
+        else if (profile.Role == Roles.Professor || profile.Role == Roles.Dean)
+        {
+            var profResponse = await Supabase.From<Professor>().Where(p => p.Id == profile.Id).Get();
+            var professor = profResponse.Models.FirstOrDefault();
+            professorFacultyId = professor?.FacultyId;
+        }
+
+        visible = true;
+    }
+
+    private async Task Save()
+    {
+        try
+        {
+            // Update profile
+            await Supabase.From<Profile>().Update(editingProfile);
+
+            // Update role-specific data
+            if (editingProfile.Role == Roles.Student)
+            {
+                var student = new Student { Id = editingProfile.Id, GroupId = studentGroupId };
+                await Supabase.From<Student>().Upsert(student);
+            }
+            else if (editingProfile.Role == Roles.Professor || editingProfile.Role == Roles.Dean)
+            {
+                var professor = new Professor { Id = editingProfile.Id, FacultyId = professorFacultyId };
+                await Supabase.From<Professor>().Upsert(professor);
+            }
+
+            Snackbar.Add("Profile updated", Severity.Success);
+            visible = false;
+            await LoadProfiles();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving profile: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void Cancel()
+    {
+        visible = false;
+    }
+}

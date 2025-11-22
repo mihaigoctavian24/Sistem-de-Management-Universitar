@@ -1,0 +1,108 @@
+@page "/signup"
+@inject Supabase.Client Supabase
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudPaper Class="pa-8">
+        <MudText Typo="Typo.h4" Align="Align.Center" GutterBottom="true">Sign Up</MudText>
+        <MudText Typo="Typo.body1" Align="Align.Center" Class="mb-4">Create your account</MudText>
+
+        <EditForm Model="@model" OnValidSubmit="SignUpAsync">
+            <DataAnnotationsValidator />
+            
+            <MudTextField @bind-Value="model.FirstName" 
+                          Label="First Name" 
+                          Variant="Variant.Outlined" 
+                          Class="mb-4"
+                          Required="true" />
+            
+            <MudTextField @bind-Value="model.LastName" 
+                          Label="Last Name" 
+                          Variant="Variant.Outlined" 
+                          Class="mb-4"
+                          Required="true" />
+            
+            <MudTextField @bind-Value="model.Email" 
+                          Label="Email" 
+                          Variant="Variant.Outlined" 
+                          InputType="InputType.Email"
+                          Class="mb-4"
+                          Required="true" />
+            
+            <MudTextField @bind-Value="model.Password" 
+                          Label="Password" 
+                          Variant="Variant.Outlined" 
+                          InputType="InputType.Password"
+                          Class="mb-4"
+                          Required="true" />
+            
+            <MudSelect T="string" @bind-Value="model.Role" Label="Role" Variant="Variant.Outlined" Class="mb-4">
+                <MudSelectItem T="string" Value="@("student")">Student</MudSelectItem>
+                <MudSelectItem T="string" Value="@("professor")">Professor</MudSelectItem>
+                <MudSelectItem T="string" Value="@("dean")">Dean</MudSelectItem>
+                <MudSelectItem T="string" Value="@("rector")">Rector</MudSelectItem>
+                <MudSelectItem T="string" Value="@("secretary")">Secretary</MudSelectItem>
+                <MudSelectItem T="string" Value="@("admin")">Admin</MudSelectItem>
+            </MudSelect>
+
+            <MudButton ButtonType="ButtonType.Submit" 
+                       Variant="Variant.Filled" 
+                       Color="Color.Primary" 
+                       FullWidth="true"
+                       Class="mb-4">
+                Sign Up
+            </MudButton>
+        </EditForm>
+
+        <MudText Align="Align.Center">
+            Already have an account? 
+            <MudLink Href="/login">Login here</MudLink>
+        </MudText>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private SignUpModel model = new();
+
+    private async Task SignUpAsync()
+    {
+        try
+        {
+            var options = new Supabase.Gotrue.SignUpOptions
+            {
+                Data = new Dictionary<string, object>
+                {
+                    { "first_name", model.FirstName },
+                    { "last_name", model.LastName },
+                    { "role", model.Role }
+                }
+            };
+
+            var session = await Supabase.Auth.SignUp(model.Email, model.Password, options);
+            
+            if (session?.User != null)
+            {
+                Snackbar.Add("Account created successfully! Please check your email to confirm.", Severity.Success);
+                Navigation.NavigateTo("/login");
+            }
+            else
+            {
+                Snackbar.Add("Sign up failed. Please try again.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Sign up failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    public class SignUpModel
+    {
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string Role { get; set; } = "student";
+    }
+}

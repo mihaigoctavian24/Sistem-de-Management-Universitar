@@ -1,0 +1,73 @@
+@page "/student/grades"
+@using UniversityManagementSystem.Client.Models
+@using Microsoft.AspNetCore.Authorization
+@using Postgrest = Supabase.Postgrest
+@attribute [Authorize(Roles = "student")]
+@inject Supabase.Client Supabase
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">My Grades</MudText>
+
+    <MudTable Items="@myGrades" Hover="true" Loading="@loading">
+        <HeaderContent>
+            <MudTh>Course</MudTh>
+            <MudTh>Grade</MudTh>
+            <MudTh>Date</MudTh>
+            <MudTh>Credits</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Course">
+                @{
+                    var course = courses.FirstOrDefault(c => c.Id == context.CourseId);
+                    @course?.Name
+                }
+            </MudTd>
+            <MudTd DataLabel="Grade">
+                <MudChip T="string" Color="@GetGradeColor(context.Value)">@context.Value.ToString()</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Date">@context.Date.ToShortDateString()</MudTd>
+            <MudTd DataLabel="Credits">
+                @{
+                    var course = courses.FirstOrDefault(c => c.Id == context.CourseId);
+                    @course?.Credits
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudContainer>
+
+@code {
+    private List<Grade> myGrades = new();
+    private List<Course> courses = new();
+    private bool loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        loading = true;
+        var user = Supabase.Auth.CurrentUser;
+        if (user != null)
+        {
+            // Get my grades
+            var gradesResponse = await Supabase.From<Grade>()
+                .Select("*")
+                .Filter("student_id", Postgrest.Constants.Operator.Equals, user.Id)
+                .Get();
+            myGrades = gradesResponse.Models;
+
+            // Get all courses to map names (optimization: fetch only needed courses)
+            var coursesResponse = await Supabase.From<Course>().Select("*").Get();
+            courses = coursesResponse.Models;
+        }
+        loading = false;
+    }
+
+    private Color GetGradeColor(int grade)
+    {
+        return grade >= 5 ? Color.Success : Color.Error;
+    }
+}

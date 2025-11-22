@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="UniversityManagementSystem.API/UniversityManagementSystem.API.csproj" />
+  <Project Path="UniversityManagementSystem.Client/UniversityManagementSystem.Client.csproj" />
+</Solution>

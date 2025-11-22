@@ -1,0 +1,199 @@
+@page "/admin/groups"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = Roles.Admin + "," + Roles.Rector + "," + Roles.Dean)]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Group Management</MudText>
+    
+    <MudPaper Class="pa-4 mb-4">
+        <MudSelect T="long?" Label="Filter by Program" @bind-Value="selectedProgramId" Clearable="true">
+            @foreach (var program in programs)
+            {
+                <MudSelectItem T="long?" Value="@program.Id">@program.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudPaper>
+    
+    <MudTable Items="@filteredGroups" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Groups</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenDialog">Add Group</MudButton>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>ID</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Program</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Program">@GetProgramName(context.ProgramId)</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditGroup(context))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteGroup(context))" />
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudContainer>
+
+<MudDialog @bind-Visible="visible" Options="dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            @(editingGroup.Id == 0 ? "Add Group" : "Edit Group")
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="editingGroup.Name" Label="Group Name" Required="true" />
+        <MudSelect T="long" @bind-Value="editingGroup.ProgramId" Label="Program" Required="true">
+            @foreach (var program in programs)
+            {
+                <MudSelectItem T="long" Value="@program.Id">@program.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<Group> groups = new();
+    private List<StudyProgram> programs = new();
+    private bool loading = true;
+    private bool visible;
+    private Group editingGroup = new();
+    private DialogOptions dialogOptions = new() { FullWidth = true };
+    private long? selectedProgramId;
+
+    private IEnumerable<Group> filteredGroups => 
+        selectedProgramId.HasValue 
+            ? groups.Where(g => g.ProgramId == selectedProgramId.Value) 
+            : groups;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPrograms();
+        await LoadGroups();
+    }
+
+    private async Task LoadPrograms()
+    {
+        try
+        {
+            var response = await Supabase.From<StudyProgram>().Get();
+            programs = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading programs: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task LoadGroups()
+    {
+        loading = true;
+        try
+        {
+            var response = await Supabase.From<Group>().Get();
+            groups = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading groups: {ex.Message}", Severity.Error);
+        }
+        loading = false;
+    }
+
+    private string GetProgramName(long programId)
+    {
+        return programs.FirstOrDefault(p => p.Id == programId)?.Name ?? "Unknown";
+    }
+
+    private void OpenDialog()
+    {
+        editingGroup = new Group();
+        visible = true;
+    }
+
+    private void EditGroup(Group group)
+    {
+        editingGroup = new Group 
+        { 
+            Id = group.Id, 
+            Name = group.Name, 
+            ProgramId = group.ProgramId 
+        };
+        visible = true;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(editingGroup.Name))
+        {
+            Snackbar.Add("Name is required", Severity.Warning);
+            return;
+        }
+
+        if (editingGroup.ProgramId == 0)
+        {
+            Snackbar.Add("Program is required", Severity.Warning);
+            return;
+        }
+
+        try
+        {
+            if (editingGroup.Id == 0)
+            {
+                await Supabase.From<Group>().Insert(editingGroup);
+                Snackbar.Add("Group added", Severity.Success);
+            }
+            else
+            {
+                await Supabase.From<Group>().Update(editingGroup);
+                Snackbar.Add("Group updated", Severity.Success);
+            }
+            visible = false;
+            await LoadGroups();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving group: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void Cancel()
+    {
+        visible = false;
+    }
+
+    private async Task DeleteGroup(Group group)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Warning", 
+            "Deleting can not be undone!", 
+            yesText:"Delete!", cancelText:"Cancel");
+
+        if (result == true)
+        {
+            try
+            {
+                await Supabase.From<Group>().Delete(group);
+                Snackbar.Add("Group deleted", Severity.Success);
+                await LoadGroups();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error deleting group: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    [Inject] private IDialogService DialogService { get; set; } = default!;
+}

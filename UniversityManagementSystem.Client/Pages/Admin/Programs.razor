@@ -1,0 +1,199 @@
+@page "/admin/programs"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = Roles.Admin + "," + Roles.Rector + "," + Roles.Dean)]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Program Management</MudText>
+    
+    <MudPaper Class="pa-4 mb-4">
+        <MudSelect T="long?" Label="Filter by Faculty" @bind-Value="selectedFacultyId" Clearable="true">
+            @foreach (var faculty in faculties)
+            {
+                <MudSelectItem T="long?" Value="@faculty.Id">@faculty.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudPaper>
+    
+    <MudTable Items="@filteredPrograms" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Programs</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenDialog">Add Program</MudButton>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>ID</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Faculty</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Faculty">@GetFacultyName(context.FacultyId)</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditProgram(context))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteProgram(context))" />
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudContainer>
+
+<MudDialog @bind-Visible="visible" Options="dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            @(editingProgram.Id == 0 ? "Add Program" : "Edit Program")
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="editingProgram.Name" Label="Program Name" Required="true" />
+        <MudSelect T="long" @bind-Value="editingProgram.FacultyId" Label="Faculty" Required="true">
+            @foreach (var faculty in faculties)
+            {
+                <MudSelectItem T="long" Value="@faculty.Id">@faculty.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<StudyProgram> programs = new();
+    private List<Faculty> faculties = new();
+    private bool loading = true;
+    private bool visible;
+    private StudyProgram editingProgram = new();
+    private DialogOptions dialogOptions = new() { FullWidth = true };
+    private long? selectedFacultyId;
+
+    private IEnumerable<StudyProgram> filteredPrograms => 
+        selectedFacultyId.HasValue 
+            ? programs.Where(p => p.FacultyId == selectedFacultyId.Value) 
+            : programs;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFaculties();
+        await LoadPrograms();
+    }
+
+    private async Task LoadFaculties()
+    {
+        try
+        {
+            var response = await Supabase.From<Faculty>().Get();
+            faculties = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading faculties: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task LoadPrograms()
+    {
+        loading = true;
+        try
+        {
+            var response = await Supabase.From<StudyProgram>().Get();
+            programs = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading programs: {ex.Message}", Severity.Error);
+        }
+        loading = false;
+    }
+
+    private string GetFacultyName(long facultyId)
+    {
+        return faculties.FirstOrDefault(f => f.Id == facultyId)?.Name ?? "Unknown";
+    }
+
+    private void OpenDialog()
+    {
+        editingProgram = new StudyProgram();
+        visible = true;
+    }
+
+    private void EditProgram(StudyProgram program)
+    {
+        editingProgram = new StudyProgram 
+        { 
+            Id = program.Id, 
+            Name = program.Name, 
+            FacultyId = program.FacultyId 
+        };
+        visible = true;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(editingProgram.Name))
+        {
+            Snackbar.Add("Name is required", Severity.Warning);
+            return;
+        }
+
+        if (editingProgram.FacultyId == 0)
+        {
+            Snackbar.Add("Faculty is required", Severity.Warning);
+            return;
+        }
+
+        try
+        {
+            if (editingProgram.Id == 0)
+            {
+                await Supabase.From<StudyProgram>().Insert(editingProgram);
+                Snackbar.Add("Program added", Severity.Success);
+            }
+            else
+            {
+                await Supabase.From<StudyProgram>().Update(editingProgram);
+                Snackbar.Add("Program updated", Severity.Success);
+            }
+            visible = false;
+            await LoadPrograms();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving program: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void Cancel()
+    {
+        visible = false;
+    }
+
+    private async Task DeleteProgram(StudyProgram program)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Warning", 
+            "Deleting can not be undone!", 
+            yesText:"Delete!", cancelText:"Cancel");
+
+        if (result == true)
+        {
+            try
+            {
+                await Supabase.From<StudyProgram>().Delete(program);
+                Snackbar.Add("Program deleted", Severity.Success);
+                await LoadPrograms();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error deleting program: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    [Inject] private IDialogService DialogService { get; set; } = default!;
+}

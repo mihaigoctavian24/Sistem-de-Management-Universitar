@@ -1,0 +1,45 @@
+﻿<MudNavMenu>
+    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
+    
+    <AuthorizeView Roles="@Roles.Admin">
+        <Authorized>
+            <MudNavLink Href="admin-dashboard" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Dashboard">Admin Dashboard</MudNavLink>
+            <MudNavLink Href="admin/faculties" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Business">Faculties</MudNavLink>
+            <MudNavLink Href="admin/programs" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.MenuBook">Programs</MudNavLink>
+            <MudNavLink Href="admin/groups" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Groups">Groups</MudNavLink>
+            <MudNavLink Href="admin/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People">Users</MudNavLink>
+            <MudNavLink Href="admin/courses" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Book">Courses</MudNavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    <AuthorizeView Roles="@Roles.Student">
+        <Authorized>
+            <MudNavLink Href="student-dashboard" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.School">Student Dashboard</MudNavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    <MudNavLink Href="counter" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Add">Counter</MudNavLink>
+    <MudNavLink Href="weather" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List">Weather</MudNavLink>
+    
+        <AuthorizeView Roles="secretary,admin">
+            <Authorized>
+                <MudNavLink Href="/secretary/students" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.PersonAdd">Student Enrollment</MudNavLink>
+                <MudNavLink Href="/secretary/enrollments" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Assignment">Enrollment Requests</MudNavLink>
+            </Authorized>
+        </AuthorizeView>
+        
+        <AuthorizeView Roles="professor,admin">
+            <Authorized>
+                <MudNavLink Href="/professor/grades" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Grade">Grade Entry</MudNavLink>
+                <MudNavLink Href="/professor/attendance" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.EventAvailable">Attendance Entry</MudNavLink>
+                <MudNavLink Href="/professor/dashboard" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.BarChart">Group Reports</MudNavLink>
+            </Authorized>
+        </AuthorizeView>
+        <AuthorizeView Roles="student">
+            <Authorized>
+                <MudNavLink Href="/student/grades" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Assessment">My Grades</MudNavLink>
+                <MudNavLink Href="/student/attendance" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.EventNote">My Attendance</MudNavLink>
+                <MudNavLink Href="/student/dashboard" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Dashboard">My Reports</MudNavLink>
+            </Authorized>
+        </AuthorizeView>
+    </MudNavMenu>

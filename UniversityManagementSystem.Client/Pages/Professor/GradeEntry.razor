@@ -1,0 +1,162 @@
+@page "/professor/grades"
+@using UniversityManagementSystem.Client.Models
+@using Microsoft.AspNetCore.Authorization
+@using Postgrest = Supabase.Postgrest
+@attribute [Authorize(Roles = "professor,admin")]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Grade Entry</MudText>
+
+    <MudGrid>
+        <MudItem xs="12" md="4">
+            <MudSelect T="Course" Label="Select Course" ValueChanged="OnCourseChanged" Variant="Variant.Outlined">
+                @foreach (var course in courses)
+                {
+                    <MudSelectItem Value="@course">@course.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+
+    @if (selectedCourse != null)
+    {
+        <MudTable Items="@students" Hover="true" Class="mt-4" Loading="@loading">
+            <HeaderContent>
+                <MudTh>Student Name</MudTh>
+                <MudTh>Email</MudTh>
+                <MudTh>Current Grade</MudTh>
+                <MudTh>Action</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Name">@context.FirstName @context.LastName</MudTd>
+                <MudTd DataLabel="Email">@context.Email</MudTd>
+                <MudTd DataLabel="Grade">
+                    @{
+                        var grade = grades.FirstOrDefault(g => g.StudentId == context.Id);
+                        if (grade != null)
+                        {
+                            <MudChip T="string" Color="Color.Success">@grade.Value.ToString()</MudChip>
+                        }
+                        else
+                        {
+                            <MudText>Not Graded</MudText>
+                        }
+                    }
+                </MudTd>
+                <MudTd>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => OpenGradeDialog(context))">Assign Grade</MudButton>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudContainer>
+
+<MudDialog @bind-Visible="isDialogVisible">
+    <DialogContent>
+        <MudText Typo="Typo.h6">Assign Grade for @selectedStudent?.FirstName @selectedStudent?.LastName</MudText>
+        <MudSelect T="int" Label="Grade" @bind-Value="gradeValue" Variant="Variant.Outlined">
+            @for (int i = 1; i <= 10; i++)
+            {
+                <MudSelectItem Value="@i">@i</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CancelDialog">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="SaveGrade">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<Course> courses = new();
+    private List<Profile> students = new();
+    private List<Grade> grades = new();
+    private Course? selectedCourse;
+    private Profile? selectedStudent;
+    private bool loading = false;
+    private bool isDialogVisible = false;
+    private int gradeValue = 10;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCourses();
+    }
+
+    private async Task LoadCourses()
+    {
+        // In a real scenario, filter by logged-in professor
+        var response = await Supabase.From<Course>().Select("*").Get();
+        courses = response.Models;
+    }
+
+    private async Task OnCourseChanged(Course course)
+    {
+        selectedCourse = course;
+        await LoadStudentsAndGrades();
+    }
+
+    private async Task LoadStudentsAndGrades()
+    {
+        if (selectedCourse == null) return;
+        loading = true;
+
+        // Load students (mock logic: load all students for now, ideally filter by group/program of the course)
+        // In a real app, we'd join Course -> Program -> Groups -> Students
+        var studentsResponse = await Supabase.From<Profile>().Select("*").Filter("role", Postgrest.Constants.Operator.Equals, "student").Get();
+        students = studentsResponse.Models;
+
+        // Load existing grades for this course
+        var gradesResponse = await Supabase.From<Grade>()
+            .Select("*")
+            .Filter("course_id", Postgrest.Constants.Operator.Equals, selectedCourse.Id)
+            .Get();
+        grades = gradesResponse.Models;
+
+        loading = false;
+    }
+
+    private void OpenGradeDialog(Profile student)
+    {
+        selectedStudent = student;
+        var existingGrade = grades.FirstOrDefault(g => g.StudentId == student.Id);
+        gradeValue = existingGrade?.Value ?? 10;
+        isDialogVisible = true;
+    }
+
+    private void CancelDialog()
+    {
+        isDialogVisible = false;
+    }
+
+    private async Task SaveGrade()
+    {
+        if (selectedStudent == null || selectedCourse == null) return;
+
+        var existingGrade = grades.FirstOrDefault(g => g.StudentId == selectedStudent.Id);
+        
+        if (existingGrade != null)
+        {
+            existingGrade.Value = gradeValue;
+            existingGrade.Date = DateTime.UtcNow;
+            await Supabase.From<Grade>().Update(existingGrade);
+        }
+        else
+        {
+            var newGrade = new Grade
+            {
+                StudentId = selectedStudent.Id,
+                CourseId = selectedCourse.Id,
+                Value = gradeValue,
+                Date = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            };
+            await Supabase.From<Grade>().Insert(newGrade);
+        }
+
+        await LoadStudentsAndGrades();
+        isDialogVisible = false;
+        Snackbar.Add("Grade saved successfully", Severity.Success);
+    }
+}

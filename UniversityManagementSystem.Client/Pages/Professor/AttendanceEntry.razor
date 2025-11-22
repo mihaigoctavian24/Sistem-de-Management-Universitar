@@ -1,0 +1,160 @@
+@page "/professor/attendance"
+@using UniversityManagementSystem.Client.Models
+@using Microsoft.AspNetCore.Authorization
+@using Postgrest = Supabase.Postgrest
+@attribute [Authorize(Roles = "professor,admin")]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Attendance Entry</MudText>
+
+    <MudGrid>
+        <MudItem xs="12" md="4">
+            <MudSelect T="Course" Label="Select Course" ValueChanged="OnCourseChanged" Variant="Variant.Outlined">
+                @foreach (var course in courses)
+                {
+                    <MudSelectItem Value="@course">@course.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudDatePicker Label="Select Date" @bind-Date="selectedDate" DateFormat="yyyy-MM-dd" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadStudentsAndAttendance" Disabled="@(selectedCourse == null || selectedDate == null)">Load</MudButton>
+        </MudItem>
+    </MudGrid>
+
+    @if (students.Any())
+    {
+        <MudTable Items="@students" Hover="true" Class="mt-4" Loading="@loading">
+            <HeaderContent>
+                <MudTh>Student Name</MudTh>
+                <MudTh>Status</MudTh>
+            </HeaderContent>
+            <RowTemplate Context="student">
+                <MudTd DataLabel="Name">@student.FirstName @student.LastName</MudTd>
+                <MudTd DataLabel="Status">
+                    <MudToggleGroup T="string" Value="@GetStatus(student.Id)" ValueChanged="@(s => UpdateStatus(student.Id, s))" Delimiters="true">
+                        <MudToggleItem Value="@("Present")">Present</MudToggleItem>
+                        <MudToggleItem Value="@("Absent")">Absent</MudToggleItem>
+                        <MudToggleItem Value="@("Excused")">Excused</MudToggleItem>
+                    </MudToggleGroup>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+
+        <MudButton Variant="Variant.Filled" Color="Color.Success" Class="mt-4" OnClick="SaveAttendance">Save Attendance</MudButton>
+    }
+</MudContainer>
+
+@code {
+    private List<Course> courses = new();
+    private List<Profile> students = new();
+    private List<Attendance> attendanceRecords = new();
+    private Course? selectedCourse;
+    private DateTime? selectedDate = DateTime.Today;
+    private bool loading = false;
+
+    // Temporary dictionary to track changes before saving
+    private Dictionary<Guid, string> pendingStatuses = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCourses();
+    }
+
+    private async Task LoadCourses()
+    {
+        var response = await Supabase.From<Course>().Select("*").Get();
+        courses = response.Models;
+    }
+
+    private async Task OnCourseChanged(Course course)
+    {
+        selectedCourse = course;
+        students.Clear();
+        attendanceRecords.Clear();
+        pendingStatuses.Clear();
+    }
+
+    private async Task LoadStudentsAndAttendance()
+    {
+        if (selectedCourse == null || selectedDate == null) return;
+        loading = true;
+
+        // Load students (mock: all students)
+        var studentsResponse = await Supabase.From<Profile>().Select("*").Filter("role", Postgrest.Constants.Operator.Equals, "student").Get();
+        students = studentsResponse.Models;
+
+        // Load attendance for this course and date
+        var dateStr = selectedDate.Value.ToString("yyyy-MM-dd");
+        var attendanceResponse = await Supabase.From<Attendance>()
+            .Select("*")
+            .Filter("course_id", Postgrest.Constants.Operator.Equals, selectedCourse.Id)
+            .Filter("date", Postgrest.Constants.Operator.Equals, dateStr)
+            .Get();
+        
+        attendanceRecords = attendanceResponse.Models;
+        
+        // Initialize pending statuses
+        pendingStatuses.Clear();
+        foreach (var student in students)
+        {
+            var existing = attendanceRecords.FirstOrDefault(a => a.StudentId == student.Id);
+            pendingStatuses[student.Id] = existing?.Status ?? "Absent"; // Default to Absent
+        }
+
+        loading = false;
+    }
+
+    private string GetStatus(Guid studentId)
+    {
+        return pendingStatuses.ContainsKey(studentId) ? pendingStatuses[studentId] : "Absent";
+    }
+
+    private void UpdateStatus(Guid studentId, string status)
+    {
+        pendingStatuses[studentId] = status;
+    }
+
+    private async Task SaveAttendance()
+    {
+        if (selectedCourse == null || selectedDate == null) return;
+
+        var recordsToSave = new List<Attendance>();
+
+        foreach (var kvp in pendingStatuses)
+        {
+            var studentId = kvp.Key;
+            var status = kvp.Value;
+
+            var existing = attendanceRecords.FirstOrDefault(a => a.StudentId == studentId);
+            
+            if (existing != null)
+            {
+                existing.Status = status;
+                recordsToSave.Add(existing);
+            }
+            else
+            {
+                recordsToSave.Add(new Attendance
+                {
+                    StudentId = studentId,
+                    CourseId = selectedCourse.Id,
+                    Date = selectedDate.Value,
+                    Status = status,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+        }
+
+        if (recordsToSave.Any())
+        {
+            await Supabase.From<Attendance>().Upsert(recordsToSave);
+            Snackbar.Add("Attendance saved successfully", Severity.Success);
+            await LoadStudentsAndAttendance(); // Reload to confirm
+        }
+    }
+}

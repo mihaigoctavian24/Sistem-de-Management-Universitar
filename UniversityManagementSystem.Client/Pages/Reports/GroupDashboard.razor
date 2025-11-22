@@ -1,0 +1,153 @@
+@page "/professor/dashboard"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "professor,admin,dean,rector,secretary")]
+@inject HttpClient Http
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Group Performance Dashboard</MudText>
+
+    <MudGrid>
+        <MudItem xs="12" md="4">
+            <MudSelect T="long?" Label="Select Group" ValueChanged="OnGroupChanged" AdornmentIcon="@Icons.Material.Filled.Group">
+                @foreach (var group in groups)
+                {
+                    <MudSelectItem Value="@((long?)group.Id)">@group.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+
+    @if (loading)
+    {
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" Class="mt-4" />
+    }
+    else if (performance != null)
+    {
+        <MudGrid Class="mt-4">
+            <MudItem xs="12" sm="6">
+                <MudPaper Class="pa-4 d-flex flex-column align-center justify-center mud-width-full" Elevation="3">
+                    <MudIcon Icon="@Icons.Material.Filled.ShowChart" Size="Size.Large" Color="Color.Primary" />
+                    <MudText Typo="Typo.h3" Color="Color.Primary">@performance.AverageGrade.ToString("F2")</MudText>
+                    <MudText Typo="Typo.subtitle1">Group Average Grade</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudPaper Class="pa-4 d-flex flex-column align-center justify-center mud-width-full" Elevation="3">
+                    <MudIcon Icon="@Icons.Material.Filled.People" Size="Size.Large" Color="Color.Secondary" />
+                    <MudText Typo="Typo.h3" Color="Color.Secondary">@performance.StudentCount</MudText>
+                    <MudText Typo="Typo.subtitle1">Total Students</MudText>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12">
+                <MudPaper Class="pa-4" Elevation="3">
+                    <MudText Typo="Typo.h6" GutterBottom="true">Student Performance</MudText>
+                    <MudTable Items="@performance.StudentPerformances" Hover="true" Breakpoint="Breakpoint.Sm" Filter="new Func<StudentGradeSummaryDto,bool>(FilterFunc)">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.h6">Students</MudText>
+                            <MudSpacer />
+                            <MudTextField @bind-Value="searchString" Placeholder="Search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+                        </ToolBarContent>
+                        <HeaderContent>
+                            <MudTh>Student Name</MudTh>
+                            <MudTh>Average Grade</MudTh>
+                            <MudTh>Performance</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Name">@context.StudentName</MudTd>
+                            <MudTd DataLabel="Average">@context.AverageGrade.ToString("F2")</MudTd>
+                            <MudTd DataLabel="Performance">
+                                <MudProgressLinear Color="@GetPerformanceColor(context.AverageGrade)" Value="@(context.AverageGrade * 10)" Class="my-2" />
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudTablePager />
+                        </PagerContent>
+                    </MudTable>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+    else if (selectedGroupId.HasValue)
+    {
+        <MudAlert Severity="Severity.Info" Class="mt-4">No data available for this group.</MudAlert>
+    }
+</MudContainer>
+
+@code {
+    private bool loading = false;
+    private List<Group> groups = new();
+    private long? selectedGroupId;
+    private GroupPerformanceDto? performance;
+    private string searchString = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadGroups();
+    }
+
+    private async Task LoadGroups()
+    {
+        try
+        {
+            var response = await Supabase.From<Group>().Get();
+            groups = response.Models.OrderBy(g => g.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading groups: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OnGroupChanged(long? groupId)
+    {
+        selectedGroupId = groupId;
+        if (groupId.HasValue)
+        {
+            await LoadPerformance(groupId.Value);
+        }
+        else
+        {
+            performance = null;
+        }
+    }
+
+    private async Task LoadPerformance(long groupId)
+    {
+        loading = true;
+        try
+        {
+            performance = await Http.GetFromJsonAsync<GroupPerformanceDto>($"api/reports/group/{groupId}/performance");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading performance: {ex.Message}", Severity.Error);
+            performance = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private bool FilterFunc(StudentGradeSummaryDto student)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (student.StudentName?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        return false;
+    }
+
+    private Color GetPerformanceColor(double grade)
+    {
+        if (grade >= 9) return Color.Success;
+        if (grade >= 7) return Color.Info;
+        if (grade >= 5) return Color.Warning;
+        return Color.Error;
+    }
+}

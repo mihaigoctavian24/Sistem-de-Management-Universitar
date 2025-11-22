@@ -1,0 +1,152 @@
+@page "/admin/faculties"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = Roles.Admin + "," + Roles.Rector)]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Faculty Management</MudText>
+    
+    <MudTable Items="@faculties" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Faculties</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenDialog">Add Faculty</MudButton>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>ID</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Dean ID</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Dean ID">@context.DeanId</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditFaculty(context))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteFaculty(context))" />
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudContainer>
+
+<MudDialog @bind-Visible="visible" Options="dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            @(editingFaculty.Id == 0 ? "Add Faculty" : "Edit Faculty")
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="editingFaculty.Name" Label="Faculty Name" Required="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<Faculty> faculties = new();
+    private bool loading = true;
+    private bool visible;
+    private Faculty editingFaculty = new();
+    private DialogOptions dialogOptions = new() { FullWidth = true };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFaculties();
+    }
+
+    private async Task LoadFaculties()
+    {
+        loading = true;
+        try
+        {
+            var response = await Supabase.From<Faculty>().Get();
+            faculties = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading faculties: {ex.Message}", Severity.Error);
+        }
+        loading = false;
+    }
+
+    private void OpenDialog()
+    {
+        editingFaculty = new Faculty();
+        visible = true;
+    }
+
+    private void EditFaculty(Faculty faculty)
+    {
+        editingFaculty = new Faculty 
+        { 
+            Id = faculty.Id, 
+            Name = faculty.Name, 
+            DeanId = faculty.DeanId 
+        };
+        visible = true;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(editingFaculty.Name))
+        {
+            Snackbar.Add("Name is required", Severity.Warning);
+            return;
+        }
+
+        try
+        {
+            if (editingFaculty.Id == 0)
+            {
+                await Supabase.From<Faculty>().Insert(editingFaculty);
+                Snackbar.Add("Faculty added", Severity.Success);
+            }
+            else
+            {
+                await Supabase.From<Faculty>().Update(editingFaculty);
+                Snackbar.Add("Faculty updated", Severity.Success);
+            }
+            visible = false;
+            await LoadFaculties();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving faculty: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void Cancel()
+    {
+        visible = false;
+    }
+
+    private async Task DeleteFaculty(Faculty faculty)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Warning", 
+            "Deleting can not be undone!", 
+            yesText:"Delete!", cancelText:"Cancel");
+
+        if (result == true)
+        {
+            try
+            {
+                await Supabase.From<Faculty>().Delete(faculty);
+                Snackbar.Add("Faculty deleted", Severity.Success);
+                await LoadFaculties();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error deleting faculty: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    [Inject] private IDialogService DialogService { get; set; } = default!;
+}

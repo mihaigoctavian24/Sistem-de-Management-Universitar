@@ -1,0 +1,284 @@
+@page "/secretary/enrollments"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = Roles.Secretary + "," + Roles.Admin)]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Enrollment Requests</MudText>
+    
+    <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-6">
+        <MudTabPanel Text="Pending" Icon="@Icons.Material.Filled.HourglassEmpty">
+            <MudTable Items="@pendingEnrollments" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
+                <HeaderContent>
+                    <MudTh>Student Name</MudTh>
+                    <MudTh>Program</MudTh>
+                    <MudTh>Academic Year</MudTh>
+                    <MudTh>Date Submitted</MudTh>
+                    <MudTh>Actions</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Student Name">@context.StudentName</MudTd>
+                    <MudTd DataLabel="Program">@context.ProgramName</MudTd>
+                    <MudTd DataLabel="Academic Year">@context.AcademicYear</MudTd>
+                    <MudTd DataLabel="Date Submitted">@context.CreatedAt.ToString("yyyy-MM-dd")</MudTd>
+                    <MudTd DataLabel="Actions">
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" OnClick="@(() => ApproveEnrollment(context))">Approve</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Error" OnClick="@(() => RejectEnrollment(context))" Class="ml-2">Reject</MudButton>
+                        <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Info" OnClick="@(() => ViewDetails(context))" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudTabPanel>
+        
+        <MudTabPanel Text="Approved" Icon="@Icons.Material.Filled.CheckCircle">
+            <MudTable Items="@approvedEnrollments" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
+                <HeaderContent>
+                    <MudTh>Student Name</MudTh>
+                    <MudTh>Program</MudTh>
+                    <MudTh>Academic Year</MudTh>
+                    <MudTh>Enrollment Date</MudTh>
+                    <MudTh>Status</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Student Name">@context.StudentName</MudTd>
+                    <MudTd DataLabel="Program">@context.ProgramName</MudTd>
+                    <MudTd DataLabel="Academic Year">@context.AcademicYear</MudTd>
+                    <MudTd DataLabel="Enrollment Date">@context.EnrollmentDate?.ToString("yyyy-MM-dd")</MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudChip T="string" Size="Size.Small" Color="GetStatusColor(context.Status)">@context.Status</MudChip>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudTabPanel>
+        
+        <MudTabPanel Text="All Requests" Icon="@Icons.Material.Filled.List">
+            <MudTable Items="@allEnrollments" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
+                <HeaderContent>
+                    <MudTh>Student Name</MudTh>
+                    <MudTh>Program</MudTh>
+                    <MudTh>Academic Year</MudTh>
+                    <MudTh>Status</MudTh>
+                    <MudTh>Date</MudTh>
+                    <MudTh>Actions</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Student Name">@context.StudentName</MudTd>
+                    <MudTd DataLabel="Program">@context.ProgramName</MudTd>
+                    <MudTd DataLabel="Academic Year">@context.AcademicYear</MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudChip T="string" Size="Size.Small" Color="GetStatusColor(context.Status)">@context.Status</MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Date">@context.CreatedAt.ToString("yyyy-MM-dd")</MudTd>
+                    <MudTd DataLabel="Actions">
+                        <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Info" OnClick="@(() => ViewDetails(context))" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudTabPanel>
+    </MudTabs>
+</MudContainer>
+
+<MudDialog @bind-Visible="detailsDialogVisible" Options="dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Enrollment Details</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (selectedEnrollment != null)
+        {
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle1"><strong>Student:</strong> @selectedEnrollment.StudentName</MudText>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle1"><strong>Program:</strong> @selectedEnrollment.ProgramName</MudText>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle1"><strong>Academic Year:</strong> @selectedEnrollment.AcademicYear</MudText>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle1"><strong>Status:</strong> @selectedEnrollment.Status</MudText>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle1"><strong>Enrollment Date:</strong> @selectedEnrollment.EnrollmentDate?.ToString("yyyy-MM-dd")</MudText>
+                </MudItem>
+                @if (!string.IsNullOrWhiteSpace(selectedEnrollment.Notes))
+                {
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.subtitle1"><strong>Notes:</strong></MudText>
+                        <MudText Typo="Typo.body2">@selectedEnrollment.Notes</MudText>
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseDetailsDialog">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<EnrollmentWithDetails> allEnrollments = new();
+    private List<EnrollmentWithDetails> pendingEnrollments = new();
+    private List<EnrollmentWithDetails> approvedEnrollments = new();
+    
+    private List<Enrollment> enrollments = new();
+    private List<Profile> profiles = new();
+    private List<StudyProgram> programs = new();
+    
+    private bool loading = true;
+    private bool detailsDialogVisible;
+    private EnrollmentWithDetails? selectedEnrollment;
+    
+    private DialogOptions dialogOptions = new() { FullWidth = true, MaxWidth = MaxWidth.Medium };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        loading = true;
+        try
+        {
+            await Task.WhenAll(
+                LoadEnrollments(),
+                LoadProfiles(),
+                LoadPrograms()
+            );
+            BuildEnrollmentDetails();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
+        }
+        loading = false;
+    }
+
+    private async Task LoadEnrollments()
+    {
+        var response = await Supabase.From<Enrollment>().Get();
+        enrollments = response.Models;
+    }
+
+    private async Task LoadProfiles()
+    {
+        var response = await Supabase.From<Profile>().Get();
+        profiles = response.Models;
+    }
+
+    private async Task LoadPrograms()
+    {
+        var response = await Supabase.From<StudyProgram>().Get();
+        programs = response.Models;
+    }
+
+    private void BuildEnrollmentDetails()
+    {
+        allEnrollments = enrollments.Select(e =>
+        {
+            var profile = profiles.FirstOrDefault(p => p.Id == e.StudentId);
+            var program = programs.FirstOrDefault(p => p.Id == e.ProgramId);
+            
+            return new EnrollmentWithDetails
+            {
+                Id = e.Id,
+                StudentId = e.StudentId,
+                StudentName = profile != null ? $"{profile.FirstName} {profile.LastName}" : "Unknown",
+                ProgramId = e.ProgramId,
+                ProgramName = program?.Name ?? "Unknown",
+                AcademicYear = e.AcademicYear,
+                Status = e.Status,
+                EnrollmentDate = e.EnrollmentDate,
+                Notes = e.Notes,
+                CreatedAt = e.CreatedAt
+            };
+        }).ToList();
+
+        pendingEnrollments = allEnrollments.Where(e => e.Status == "pending").ToList();
+        approvedEnrollments = allEnrollments.Where(e => e.Status == "approved" || e.Status == "active").ToList();
+    }
+
+    private async Task ApproveEnrollment(EnrollmentWithDetails enrollment)
+    {
+        try
+        {
+            var updatedEnrollment = new Enrollment
+            {
+                Id = enrollment.Id,
+                StudentId = enrollment.StudentId,
+                ProgramId = enrollment.ProgramId,
+                AcademicYear = enrollment.AcademicYear,
+                Status = "approved",
+                EnrollmentDate = DateTime.Now,
+                Notes = enrollment.Notes
+            };
+
+            await Supabase.From<Enrollment>().Update(updatedEnrollment);
+            Snackbar.Add("Enrollment approved successfully", Severity.Success);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error approving enrollment: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task RejectEnrollment(EnrollmentWithDetails enrollment)
+    {
+        try
+        {
+            await Supabase.From<Enrollment>()
+                .Where(e => e.Id == enrollment.Id)
+                .Delete();
+            
+            Snackbar.Add("Enrollment request rejected", Severity.Info);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error rejecting enrollment: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void ViewDetails(EnrollmentWithDetails enrollment)
+    {
+        selectedEnrollment = enrollment;
+        detailsDialogVisible = true;
+    }
+
+    private void CloseDetailsDialog()
+    {
+        detailsDialogVisible = false;
+    }
+
+    private Color GetStatusColor(string status)
+    {
+        return status switch
+        {
+            "pending" => Color.Warning,
+            "approved" => Color.Success,
+            "active" => Color.Primary,
+            "suspended" => Color.Error,
+            "graduated" => Color.Info,
+            _ => Color.Default
+        };
+    }
+
+    public class EnrollmentWithDetails
+    {
+        public long Id { get; set; }
+        public Guid StudentId { get; set; }
+        public string StudentName { get; set; } = "";
+        public long ProgramId { get; set; }
+        public string ProgramName { get; set; } = "";
+        public string AcademicYear { get; set; } = "";
+        public string Status { get; set; } = "";
+        public DateTime? EnrollmentDate { get; set; }
+        public string? Notes { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+}

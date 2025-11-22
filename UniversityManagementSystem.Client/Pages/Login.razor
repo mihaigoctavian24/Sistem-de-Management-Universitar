@@ -1,0 +1,49 @@
+@page "/login"
+@using Supabase.Gotrue
+@inject Supabase.Client Supabase
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <MudPaper Elevation="3" Class="pa-8">
+        <MudText Typo="Typo.h4" Align="Align.Center" Class="mb-4">Login</MudText>
+        
+        <MudForm @ref="form" @bind-IsValid="@success">
+            <MudTextField T="string" Label="Email" @bind-Value="email" Required="true" RequiredError="Email is required!" InputType="InputType.Email" />
+            <MudTextField T="string" Label="Password" @bind-Value="password" Required="true" RequiredError="Password is required!" InputType="InputType.Password" />
+            
+            <div class="d-flex justify-space-between align-center mt-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!success)" OnClick="LoginAsync" Class="ml-auto">Login</MudButton>
+            </div>
+        </MudForm>
+        
+        <MudText Align="Align.Center" Class="mt-4">
+            Don't have an account? 
+            <MudLink Href="/signup">Sign up here</MudLink>
+        </MudText>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    string email = "";
+    string password = "";
+    bool success;
+    MudForm? form;
+
+    async Task LoginAsync()
+    {
+        try
+        {
+            var session = await Supabase.Auth.SignIn(email, password);
+            if (session != null)
+            {
+                Snackbar.Add("Login successful!", Severity.Success);
+                Navigation.NavigateTo("/");
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Login failed: {ex.Message}", Severity.Error);
+        }
+    }
+}

@@ -1,0 +1,254 @@
+@page "/admin/courses"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = Roles.Admin + "," + Roles.Rector + "," + Roles.Dean)]
+@inject Supabase.Client Supabase
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Course Management</MudText>
+    
+    <MudPaper Class="pa-4 mb-4">
+        <MudGrid>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="long?" Label="Filter by Program" @bind-Value="selectedProgramId" Clearable="true">
+                    @foreach (var program in programs)
+                    {
+                        <MudSelectItem T="long?" Value="@program.Id">@program.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Filter by Professor" @bind-Value="selectedProfessorId" Clearable="true">
+                    @foreach (var prof in professors)
+                    {
+                        <MudSelectItem T="Guid?" Value="@prof.Id">@prof.FirstName @prof.LastName</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+    
+    <MudTable Items="@filteredCourses" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Courses</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenDialog">Add Course</MudButton>
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>ID</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Program</MudTh>
+            <MudTh>Professor</MudTh>
+            <MudTh>Semester</MudTh>
+            <MudTh>Credits</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Program">@GetProgramName(context.ProgramId)</MudTd>
+            <MudTd DataLabel="Professor">@GetProfessorName(context.ProfessorId)</MudTd>
+            <MudTd DataLabel="Semester">@context.Semester</MudTd>
+            <MudTd DataLabel="Credits">@context.Credits</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditCourse(context))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteCourse(context))" />
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudContainer>
+
+<MudDialog @bind-Visible="visible" Options="dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            @(editingCourse.Id == 0 ? "Add Course" : "Edit Course")
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="editingCourse.Name" Label="Course Name" Required="true" />
+        <MudSelect T="long?" @bind-Value="editingCourse.ProgramId" Label="Program" Required="true">
+            @foreach (var program in programs)
+            {
+                <MudSelectItem T="long?" Value="@program.Id">@program.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" @bind-Value="editingCourse.ProfessorId" Label="Professor">
+            @foreach (var prof in professors)
+            {
+                <MudSelectItem T="Guid?" Value="@prof.Id">@prof.FirstName @prof.LastName</MudSelectItem>
+            }
+        </MudSelect>
+        <MudNumericField @bind-Value="editingCourse.Semester" Label="Semester" Min="1" Max="8" />
+        <MudNumericField @bind-Value="editingCourse.Credits" Label="Credits" Min="1" Max="10" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<Course> courses = new();
+    private List<StudyProgram> programs = new();
+    private List<Profile> professors = new();
+    private bool loading = true;
+    private bool visible;
+    private Course editingCourse = new();
+    private DialogOptions dialogOptions = new() { FullWidth = true };
+    private long? selectedProgramId;
+    private Guid? selectedProfessorId;
+
+    private IEnumerable<Course> filteredCourses
+    {
+        get
+        {
+            var filtered = courses.AsEnumerable();
+            if (selectedProgramId.HasValue)
+                filtered = filtered.Where(c => c.ProgramId == selectedProgramId.Value);
+            if (selectedProfessorId.HasValue)
+                filtered = filtered.Where(c => c.ProfessorId == selectedProfessorId.Value);
+            return filtered;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPrograms();
+        await LoadProfessors();
+        await LoadCourses();
+    }
+
+    private async Task LoadPrograms()
+    {
+        try
+        {
+            var response = await Supabase.From<StudyProgram>().Get();
+            programs = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading programs: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task LoadProfessors()
+    {
+        try
+        {
+            var response = await Supabase.From<Profile>()
+                .Where(p => p.Role == "professor" || p.Role == "dean")
+                .Get();
+            professors = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading professors: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task LoadCourses()
+    {
+        loading = true;
+        try
+        {
+            var response = await Supabase.From<Course>().Get();
+            courses = response.Models;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading courses: {ex.Message}", Severity.Error);
+        }
+        loading = false;
+    }
+
+    private string GetProgramName(long? programId)
+    {
+        return programs.FirstOrDefault(p => p.Id == programId)?.Name ?? "N/A";
+    }
+
+    private string GetProfessorName(Guid? professorId)
+    {
+        var prof = professors.FirstOrDefault(p => p.Id == professorId);
+        return prof != null ? $"{prof.FirstName} {prof.LastName}" : "N/A";
+    }
+
+    private void OpenDialog()
+    {
+        editingCourse = new Course();
+        visible = true;
+    }
+
+    private void EditCourse(Course course)
+    {
+        editingCourse = new Course 
+        { 
+            Id = course.Id, 
+            Name = course.Name, 
+            ProgramId = course.ProgramId,
+            ProfessorId = course.ProfessorId,
+            Semester = course.Semester,
+            Credits = course.Credits
+        };
+        visible = true;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(editingCourse.Name))
+        {
+            Snackbar.Add("Name is required", Severity.Warning);
+            return;
+        }
+
+        try
+        {
+            if (editingCourse.Id == 0)
+            {
+                await Supabase.From<Course>().Insert(editingCourse);
+                Snackbar.Add("Course added", Severity.Success);
+            }
+            else
+            {
+                await Supabase.From<Course>().Update(editingCourse);
+                Snackbar.Add("Course updated", Severity.Success);
+            }
+            visible = false;
+            await LoadCourses();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving course: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void Cancel()
+    {
+        visible = false;
+    }
+
+    private async Task DeleteCourse(Course course)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Warning", 
+            "Deleting can not be undone!", 
+            yesText:"Delete!", cancelText:"Cancel");
+
+        if (result == true)
+        {
+            try
+            {
+                await Supabase.From<Course>().Delete(course);
+                Snackbar.Add("Course deleted", Severity.Success);
+                await LoadCourses();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error deleting course: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    [Inject] private IDialogService DialogService { get; set; } = default!;
+}

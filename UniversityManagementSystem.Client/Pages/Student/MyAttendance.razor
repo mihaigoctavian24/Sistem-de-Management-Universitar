@@ -1,0 +1,118 @@
+@page "/student/attendance"
+@using UniversityManagementSystem.Client.Models
+@using Microsoft.AspNetCore.Authorization
+@using Postgrest = Supabase.Postgrest
+@attribute [Authorize(Roles = "student")]
+@inject Supabase.Client Supabase
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">My Attendance</MudText>
+
+    @if (loading)
+    {
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <MudTable Items="@attendanceRecords" Hover="true" GroupBy="@groupByCourse">
+            <HeaderContent>
+                <MudTh>Date</MudTh>
+                <MudTh>Status</MudTh>
+            </HeaderContent>
+            <GroupHeaderTemplate>
+                <MudTh Class="mud-table-cell-custom-group" colspan="2">@GetCourseName(context.Key)</MudTh>
+            </GroupHeaderTemplate>
+            <RowTemplate>
+                <MudTd DataLabel="Date">@context.Date.ToShortDateString()</MudTd>
+                <MudTd DataLabel="Status">
+                    <MudChip T="string" Color="@GetStatusColor(context.Status)">@context.Status</MudChip>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudContainer>
+
+@code {
+    private List<Attendance> attendanceRecords = new();
+    private List<Course> courses = new();
+    private bool loading = true;
+
+    [Inject] AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+
+    private TableGroupDefinition<Attendance> groupByCourse = new()
+    {
+        GroupName = "Course",
+        Indentation = false,
+        Expandable = true,
+        IsInitiallyExpanded = true,
+        Selector = (e) => e.CourseId
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        loading = true;
+        try 
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated != true)
+            {
+                loading = false;
+                return;
+            }
+
+            var userIdClaim = user.FindFirst(c => c.Type == "sub")?.Value ?? 
+                              user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+            if (userIdClaim != null && Guid.TryParse(userIdClaim, out Guid userId))
+            {
+                // Load courses for names
+                var coursesResponse = await Supabase.From<Course>().Select("*").Get();
+                courses = coursesResponse.Models;
+
+                // Load attendance
+                var attendanceResponse = await Supabase.From<Attendance>()
+                    .Select("*")
+                    .Filter("student_id", Postgrest.Constants.Operator.Equals, userId)
+                    .Order("date", Postgrest.Constants.Ordering.Descending)
+                    .Get();
+                
+                attendanceRecords = attendanceResponse.Models;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading attendance: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private string GetCourseName(object? key)
+    {
+        if (key is long courseId)
+        {
+            return courses.FirstOrDefault(c => c.Id == courseId)?.Name ?? $"Course {courseId}";
+        }
+        return "Unknown Course";
+    }
+
+    private Color GetStatusColor(string status)
+    {
+        return status switch
+        {
+            "Present" => Color.Success,
+            "Absent" => Color.Error,
+            "Excused" => Color.Warning,
+            _ => Color.Default
+        };
+    }
+}

@@ -1,0 +1,23 @@
+@page "/student-dashboard"
+@using Microsoft.AspNetCore.Authorization
+@using UniversityManagementSystem.Client.Auth
+@attribute [Authorize(Roles = Roles.Student)]
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h3" GutterBottom="true">Student Dashboard</MudText>
+    <MudAlert Severity="Severity.Success">Welcome, Student! View your grades and attendance here.</MudAlert>
+    
+    <MudGrid Class="mt-4">
+        <MudItem xs="12" sm="6" md="4">
+            <MudCard>
+                <MudCardContent>
+                    <MudText Typo="Typo.h5">My Grades</MudText>
+                    <MudText Typo="Typo.body2">View your academic performance.</MudText>
+                </MudCardContent>
+                <MudCardActions>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary">View</MudButton>
+                </MudCardActions>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+</MudContainer>

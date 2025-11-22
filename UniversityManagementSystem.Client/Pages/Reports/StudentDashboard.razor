@@ -1,0 +1,295 @@
+@page "/student/dashboard"
+@using UniversityManagementSystem.Client.Models
+@using UniversityManagementSystem.Client.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "student")]
+@inject HttpClient Http
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-8 mb-8">
+    <MudText Typo="Typo.h3" Class="mb-2" Style="font-weight: 600; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+        My Academic Dashboard
+    </MudText>
+    <MudText Typo="Typo.body1" Class="mb-6" Color="Color.Secondary">Track your academic progress and performance</MudText>
+
+    @if (loading)
+    {
+        <div class="d-flex justify-center align-center" style="min-height: 400px;">
+            <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+        </div>
+    }
+    else
+    {
+        <MudGrid Spacing="4">
+            <!-- Summary Cards -->
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Class="pa-6 d-flex flex-column align-center justify-center" Elevation="0" Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; min-height: 160px;">
+                    <MudIcon Icon="@Icons.Material.Filled.Grade" Size="Size.Large" Style="color: white; margin-bottom: 12px;" />
+                    <MudText Typo="Typo.h3" Style="color: white; font-weight: 700;">@performance?.AverageGrade.ToString("F2")</MudText>
+                    <MudText Typo="Typo.body2" Style="color: rgba(255,255,255,0.9);">Average Grade (GPA)</MudText>
+                </MudPaper>
+            </MudItem>
+            
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Class="pa-6 d-flex flex-column align-center justify-center" Elevation="0" Style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 16px; min-height: 160px;">
+                    <MudIcon Icon="@Icons.Material.Filled.School" Size="Size.Large" Style="color: white; margin-bottom: 12px;" />
+                    <MudText Typo="Typo.h3" Style="color: white; font-weight: 700;">@performance?.TotalCredits</MudText>
+                    <MudText Typo="Typo.body2" Style="color: rgba(255,255,255,0.9);">Total Credits</MudText>
+                </MudPaper>
+            </MudItem>
+            
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Class="pa-6 d-flex flex-column align-center justify-center" Elevation="0" Style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 16px; min-height: 160px;">
+                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Large" Style="color: white; margin-bottom: 12px;" />
+                    <MudText Typo="Typo.h3" Style="color: white; font-weight: 700;">@attendance?.AttendancePercentage.ToString("F1")%</MudText>
+                    <MudText Typo="Typo.body2" Style="color: rgba(255,255,255,0.9);">Attendance Rate</MudText>
+                </MudPaper>
+            </MudItem>
+            
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Class="pa-6 d-flex flex-column align-center justify-center" Elevation="0" Style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 16px; min-height: 160px;">
+                    <MudIcon Icon="@Icons.Material.Filled.MenuBook" Size="Size.Large" Style="color: white; margin-bottom: 12px;" />
+                    <MudText Typo="Typo.h3" Style="color: white; font-weight: 700;">@performance?.GradesByCourse.Count()</MudText>
+                    <MudText Typo="Typo.body2" Style="color: rgba(255,255,255,0.9);">Courses Enrolled</MudText>
+                </MudPaper>
+            </MudItem>
+
+            <!-- Charts -->
+            <MudItem xs="12" md="7">
+                <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 16px; min-height: 450px;">
+                    <div class="d-flex align-center mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.BarChart" Class="mr-2" Color="Color.Primary" />
+                        <MudText Typo="Typo.h6" Style="font-weight: 600;">Grades by Course</MudText>
+                    </div>
+                    @if (performance?.GradesByCourse.Any() == true)
+                    {
+                        <div style="width: 100%; overflow-x: auto;">
+                            @foreach (var course in performance.GradesByCourse)
+                            {
+                                <div class="mb-4">
+                                    <div class="d-flex justify-space-between align-center mb-1">
+                                        <MudText Typo="Typo.body2" Style="font-weight: 600;">@course.CourseName</MudText>
+                                        <MudText Typo="Typo.body1" Style="font-weight: 700; color: #667eea;">@course.Grade.ToString("F2")</MudText>
+                                    </div>
+                                    <MudProgressLinear 
+                                        Color="@GetGradeColor(course.Grade)" 
+                                        Value="@(course.Grade * 10)" 
+                                        Size="Size.Large"
+                                        Rounded="true"
+                                        Class="my-1" />
+                                    <div class="d-flex justify-space-between">
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">0</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">10</MudText>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column align-center justify-center" style="min-height: 300px;">
+                            <MudIcon Icon="@Icons.Material.Filled.Assessment" Size="Size.Large" Color="Color.Secondary" Class="mb-2" />
+                            <MudText Color="Color.Secondary">No grades recorded yet.</MudText>
+                        </div>
+                    }
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="5">
+                <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 16px; min-height: 450px;">
+                    <div class="d-flex align-center mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.PieChart" Class="mr-2" Color="Color.Secondary" />
+                        <MudText Typo="Typo.h6" Style="font-weight: 600;">Attendance Overview</MudText>
+                    </div>
+                    @if (attendance?.AttendanceByCourse.Any() == true)
+                    {
+                        <MudChart ChartType="ChartType.Donut" 
+                                  InputData="@attendanceData" 
+                                  InputLabels="@attendanceLabels" 
+                                  Width="100%" 
+                                  Height="350px">
+                            <CustomGraphics>
+                                <text class="donut-inner-text" x="47%" y="35%" dominant-baseline="middle" text-anchor="middle" fill="black" font-family="Helvetica" font-size="2">Total</text>
+                                <text class="donut-inner-text" x="47%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="black" font-family="Helvetica" font-size="5">@attendance?.AttendancePercentage.ToString("F1")%</text>
+                            </CustomGraphics>
+                        </MudChart>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column align-center justify-center" style="min-height: 300px;">
+                            <MudIcon Icon="@Icons.Material.Filled.EventAvailable" Size="Size.Large" Color="Color.Secondary" Class="mb-2" />
+                            <MudText Color="Color.Secondary">No attendance records found.</MudText>
+                        </div>
+                    }
+                </MudPaper>
+            </MudItem>
+            
+            <!-- Detailed Table -->
+            <MudItem xs="12">
+                <MudPaper Class="pa-6" Elevation="2" Style="border-radius: 16px;">
+                    <div class="d-flex align-center mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.TableChart" Class="mr-2" Color="Color.Tertiary" />
+                        <MudText Typo="Typo.h6" Style="font-weight: 600;">Detailed Attendance by Course</MudText>
+                    </div>
+                    <MudTable Items="@attendance?.AttendanceByCourse" 
+                              Hover="true" 
+                              Breakpoint="Breakpoint.Sm" 
+                              Elevation="0"
+                              Style="border-radius: 8px;">
+                        <HeaderContent>
+                            <MudTh Style="font-weight: 600;">Course</MudTh>
+                            <MudTh Style="font-weight: 600;">Present</MudTh>
+                            <MudTh Style="font-weight: 600;">Absent</MudTh>
+                            <MudTh Style="font-weight: 600;">Excused</MudTh>
+                            <MudTh Style="font-weight: 600;">Attendance Rate</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Course">
+                                <div class="d-flex align-center">
+                                    <MudIcon Icon="@Icons.Material.Filled.Book" Size="Size.Small" Class="mr-2" Color="Color.Primary" />
+                                    <strong>@context.CourseName</strong>
+                                </div>
+                            </MudTd>
+                            <MudTd DataLabel="Present">
+                                <MudBadge Color="Color.Success" Dot="false" Content="@context.PresentCount" Overlap="false" Class="mx-2">
+                                    <MudText Typo="Typo.body2">@context.PresentCount</MudText>
+                                </MudBadge>
+                            </MudTd>
+                            <MudTd DataLabel="Absent">
+                                <MudBadge Color="Color.Error" Dot="false" Content="@context.AbsentCount" Overlap="false" Class="mx-2">
+                                    <MudText Typo="Typo.body2">@context.AbsentCount</MudText>
+                                </MudBadge>
+                            </MudTd>
+                            <MudTd DataLabel="Excused">
+                                <MudBadge Color="Color.Warning" Dot="false" Content="@context.ExcusedCount" Overlap="false" Class="mx-2">
+                                    <MudText Typo="Typo.body2">@context.ExcusedCount</MudText>
+                                </MudBadge>
+                            </MudTd>
+                            <MudTd DataLabel="Percentage">
+                                <div style="min-width: 150px;">
+                                    <MudProgressLinear Color="@GetAttendanceColor(context.AttendancePercentage)" 
+                                                       Value="@context.AttendancePercentage" 
+                                                       Class="my-2" 
+                                                       Size="Size.Large"
+                                                       Rounded="true" />
+                                    <MudText Typo="Typo.caption" Style="font-weight: 600;">@context.AttendancePercentage.ToString("F1")%</MudText>
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    private bool loading = true;
+    private StudentPerformanceDto? performance;
+    private AttendanceStatsDto? attendance;
+    
+    // Chart Data
+    private List<ChartSeries> gradesSeries = new();
+    private string[] gradesLabels = { };
+    private double[] attendanceData = { };
+    private string[] attendanceLabels = { "Present", "Absent", "Excused" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            Console.WriteLine($"[Dashboard] IsAuthenticated: {user.Identity?.IsAuthenticated}");
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                foreach (var claim in user.Claims)
+                {
+                    Console.WriteLine($"[Dashboard] Claim: {claim.Type} = {claim.Value}");
+                }
+
+                var userIdClaim = user.FindFirst(c => c.Type == "sub")?.Value ?? 
+                                  user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ??
+                                  user.FindFirst("user_id")?.Value;
+
+                Console.WriteLine($"[Dashboard] Found UserId Claim Value: {userIdClaim}");
+
+                if (userIdClaim != null && Guid.TryParse(userIdClaim, out Guid userId))
+                {
+                    Console.WriteLine($"[Dashboard] Parsed UserId: {userId}. Fetching data...");
+                    await LoadData(userId);
+                }
+                else
+                {
+                    Console.WriteLine("[Dashboard] User ID claim not found or invalid GUID.");
+                    Snackbar.Add("Could not identify user.", Severity.Error);
+                }
+            }
+            else 
+            {
+                Console.WriteLine("[Dashboard] User is NOT authenticated.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading dashboard: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task LoadData(Guid userId)
+    {
+        // Fetch Performance
+        try 
+        {
+            performance = await Http.GetFromJsonAsync<StudentPerformanceDto>($"api/reports/student/{userId}/performance");
+            if (performance != null && performance.GradesByCourse.Any())
+            {
+                gradesSeries = new List<ChartSeries>
+                {
+                    new ChartSeries { Name = "Grade", Data = performance.GradesByCourse.Select(g => (double)g.Grade).ToArray() }
+                };
+                gradesLabels = performance.GradesByCourse.Select(g => g.CourseName).ToArray();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching performance: {ex.Message}");
+        }
+
+        // Fetch Attendance
+        try
+        {
+            attendance = await Http.GetFromJsonAsync<AttendanceStatsDto>($"api/reports/student/{userId}/attendance");
+            if (attendance != null)
+            {
+                attendanceData = new double[] { attendance.PresentCount, attendance.AbsentCount, attendance.ExcusedCount };
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching attendance: {ex.Message}");
+        }
+    }
+
+    private Color GetAttendanceColor(double percentage)
+    {
+        if (percentage >= 80) return Color.Success;
+        if (percentage >= 50) return Color.Warning;
+        return Color.Error;
+    }
+
+    private Color GetGradeColor(int grade)
+    {
+        if (grade >= 9) return Color.Success;
+        if (grade >= 7) return Color.Info;
+        if (grade >= 5) return Color.Warning;
+        return Color.Error;
+    }
+}
