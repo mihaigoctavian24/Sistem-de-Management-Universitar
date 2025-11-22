@@ -1,138 +1,131 @@
 @page "/admin/users"
 @using UniversityManagementSystem.Client.Models
-@using UniversityManagementSystem.Client.Auth
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = Roles.Admin + "," + Roles.Rector)]
-@inject Supabase.Client Supabase
+@attribute [Authorize(Roles = "admin")]
+@inject HttpClient Http
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
-    <MudText Typo="Typo.h4" GutterBottom="true">User Management</MudText>
-    
-    <MudTable Items="@profiles" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
-        <ToolBarContent>
-            <MudText Typo="Typo.h6">Users</MudText>
-            <MudSpacer />
-        </ToolBarContent>
-        <HeaderContent>
-            <MudTh>Name</MudTh>
-            <MudTh>Email</MudTh>
-            <MudTh>Role</MudTh>
-            <MudTh>Actions</MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="Name">@context.FirstName @context.LastName</MudTd>
-            <MudTd DataLabel="Email">@context.Email</MudTd>
-            <MudTd DataLabel="Role">
-                <MudChip T="string" Size="Size.Small" Color="GetRoleColor(context.Role)">@context.Role</MudChip>
-            </MudTd>
-            <MudTd DataLabel="Actions">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditProfile(context))" />
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
+    <MudText Typo="Typo.h4" Class="mb-4">Users Management</MudText>
+
+    @if (loading)
+    {
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <MudTable Items="@users" Hover="true" Striped="true" Filter="new Func<ProfileDto,bool>(FilterFunc)">
+            <ToolBarContent>
+                <MudText Typo="Typo.h6">Users List</MudText>
+                <MudSpacer />
+                <MudTextField @bind-Value="searchString" Placeholder="Search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Email</MudTh>
+                <MudTh>Role</MudTh>
+                <MudTh>Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Name">@context.FullName</MudTd>
+                <MudTd DataLabel="Email">@context.Email</MudTd>
+                <MudTd DataLabel="Role">
+                    <MudChip T="string" Color="@GetRoleColor(context.Role)" Size="Size.Small">@context.Role.ToUpper()</MudChip>
+                </MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => OpenEditDialog(context))" />
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager />
+            </PagerContent>
+        </MudTable>
+    }
 </MudContainer>
 
-<MudDialog @bind-Visible="visible" Options="dialogOptions">
+<MudDialog @bind-IsVisible="isDialogVisible">
     <TitleContent>
-        <MudText Typo="Typo.h6">Edit User Profile</MudText>
+        <MudText Typo="Typo.h6">Edit User Role</MudText>
     </TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="editingProfile.FirstName" Label="First Name" />
-        <MudTextField @bind-Value="editingProfile.LastName" Label="Last Name" />
-        <MudTextField @bind-Value="editingProfile.Email" Label="Email" Disabled="true" />
-        <MudSelect T="string" @bind-Value="editingProfile.Role" Label="Role">
-            <MudSelectItem T="string" Value="@Roles.Student">Student</MudSelectItem>
-            <MudSelectItem T="string" Value="@Roles.Professor">Professor</MudSelectItem>
-            <MudSelectItem T="string" Value="@Roles.Dean">Dean</MudSelectItem>
-            <MudSelectItem T="string" Value="@Roles.Rector">Rector</MudSelectItem>
-            <MudSelectItem T="string" Value="@Roles.Secretary">Secretary</MudSelectItem>
-            <MudSelectItem T="string" Value="@Roles.Admin">Admin</MudSelectItem>
+        <MudText Class="mb-4">Editing user: <b>@currentUser.FullName</b> (@currentUser.Email)</MudText>
+        
+        <MudSelect T="string" Label="Role" @bind-Value="selectedRole" AnchorOrigin="Origin.BottomCenter" Class="mb-3">
+            <MudSelectItem Value="@("student")">Student</MudSelectItem>
+            <MudSelectItem Value="@("professor")">Professor</MudSelectItem>
+            <MudSelectItem Value="@("admin")">Admin</MudSelectItem>
+            <MudSelectItem Value="@("dean")">Dean</MudSelectItem>
+            <MudSelectItem Value="@("secretary")">Secretary</MudSelectItem>
         </MudSelect>
 
-        @if (editingProfile.Role == Roles.Student)
+        @if (selectedRole == "student")
         {
-            <MudSelect T="long?" @bind-Value="studentGroupId" Label="Group" Clearable="true">
+            <MudSelect T="long" Label="Group" @bind-Value="selectedGroupId" AnchorOrigin="Origin.BottomCenter" Class="mb-3">
                 @foreach (var group in groups)
                 {
-                    <MudSelectItem T="long?" Value="@group.Id">@group.Name</MudSelectItem>
+                    <MudSelectItem T="long" Value="@group.Id">@group.Name (@group.ProgramName)</MudSelectItem>
                 }
             </MudSelect>
+            <MudTextField @bind-Value="registrationNumber" Label="Registration Number" Class="mb-3" />
         }
 
-        @if (editingProfile.Role == Roles.Professor || editingProfile.Role == Roles.Dean)
+        @if (selectedRole == "professor" || selectedRole == "dean")
         {
-            <MudSelect T="long?" @bind-Value="professorFacultyId" Label="Faculty" Clearable="true">
+            <MudSelect T="long" Label="Faculty" @bind-Value="selectedFacultyId" AnchorOrigin="Origin.BottomCenter" Class="mb-3">
                 @foreach (var faculty in faculties)
                 {
-                    <MudSelectItem T="long?" Value="@faculty.Id">@faculty.Name</MudSelectItem>
+                    <MudSelectItem T="long" Value="@faculty.Id">@faculty.Name</MudSelectItem>
                 }
             </MudSelect>
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+        <MudButton OnClick="CloseDialog">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="SaveUser">Save</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
-    private List<Profile> profiles = new();
-    private List<Faculty> faculties = new();
-    private List<Group> groups = new();
+    private List<ProfileDto> users = new();
+    private List<GroupDto> groups = new();
+    private List<FacultyDto> faculties = new();
     private bool loading = true;
-    private bool visible;
-    private Profile editingProfile = new();
-    private long? studentGroupId;
-    private long? professorFacultyId;
-    private DialogOptions dialogOptions = new() { FullWidth = true };
+    private string searchString = "";
+    
+    private bool isDialogVisible;
+    private ProfileDto currentUser = new();
+    private string selectedRole = "";
+    
+    // Student specific
+    private long selectedGroupId;
+    private string registrationNumber = "";
+    
+    // Professor specific
+    private long selectedFacultyId;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadFaculties();
-        await LoadGroups();
-        await LoadProfiles();
+        await LoadData();
     }
 
-    private async Task LoadFaculties()
+    private async Task LoadData()
     {
         try
         {
-            var response = await Supabase.From<Faculty>().Get();
-            faculties = response.Models;
+            loading = true;
+            users = await Http.GetFromJsonAsync<List<ProfileDto>>("api/users") ?? new();
+            groups = await Http.GetFromJsonAsync<List<GroupDto>>("api/groups") ?? new();
+            faculties = await Http.GetFromJsonAsync<List<FacultyDto>>("api/faculties") ?? new();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error loading faculties: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
         }
-    }
-
-    private async Task LoadGroups()
-    {
-        try
+        finally
         {
-            var response = await Supabase.From<Group>().Get();
-            groups = response.Models;
+            loading = false;
         }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Error loading groups: {ex.Message}", Severity.Error);
-        }
-    }
-
-    private async Task LoadProfiles()
-    {
-        loading = true;
-        try
-        {
-            var response = await Supabase.From<Profile>().Get();
-            profiles = response.Models;
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Error loading profiles: {ex.Message}", Severity.Error);
-        }
-        loading = false;
     }
 
     private Color GetRoleColor(string role)
@@ -140,73 +133,115 @@
         return role switch
         {
             "admin" => Color.Error,
-            "rector" => Color.Warning,
-            "dean" => Color.Info,
-            "professor" => Color.Primary,
-            "secretary" => Color.Secondary,
+            "professor" => Color.Info,
+            "dean" => Color.Warning,
+            "student" => Color.Success,
             _ => Color.Default
         };
     }
 
-    private async void EditProfile(Profile profile)
+    private bool FilterFunc(ProfileDto user)
     {
-        editingProfile = new Profile 
-        { 
-            Id = profile.Id, 
-            Email = profile.Email,
-            FirstName = profile.FirstName, 
-            LastName = profile.LastName,
-            Role = profile.Role
-        };
-
-        // Load existing assignments
-        if (profile.Role == Roles.Student)
-        {
-            var studentResponse = await Supabase.From<Student>().Where(s => s.Id == profile.Id).Get();
-            var student = studentResponse.Models.FirstOrDefault();
-            studentGroupId = student?.GroupId;
-        }
-        else if (profile.Role == Roles.Professor || profile.Role == Roles.Dean)
-        {
-            var profResponse = await Supabase.From<Professor>().Where(p => p.Id == profile.Id).Get();
-            var professor = profResponse.Models.FirstOrDefault();
-            professorFacultyId = professor?.FacultyId;
-        }
-
-        visible = true;
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (user.FullName.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (user.Email.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
     }
 
-    private async Task Save()
+    private async Task OpenEditDialog(ProfileDto user)
+    {
+        currentUser = user;
+        selectedRole = user.Role;
+        
+        // Reset fields
+        selectedGroupId = 0;
+        registrationNumber = "";
+        selectedFacultyId = 0;
+
+        // If user is already a student, try to fetch details
+        if (user.Role == "student")
+        {
+            try 
+            {
+                var studentDetails = await Http.GetFromJsonAsync<StudentDto>($"api/students/{user.Id}");
+                if (studentDetails != null)
+                {
+                    selectedGroupId = studentDetails.GroupId ?? 0;
+                    registrationNumber = studentDetails.RegistrationNumber ?? "";
+                }
+            }
+            catch { /* Ignore if not found */ }
+        }
+        
+        // If user is already a professor, try to fetch details
+        if (user.Role == "professor" || user.Role == "dean")
+        {
+            try
+            {
+                var professorDetails = await Http.GetFromJsonAsync<ProfessorDto>($"api/professors/{user.Id}");
+                if (professorDetails != null)
+                {
+                    selectedFacultyId = professorDetails.FacultyId ?? 0;
+                }
+            }
+            catch { /* Ignore if not found */ }
+        }
+
+        // Set defaults if 0
+        if (selectedGroupId == 0 && groups.Any()) selectedGroupId = groups.First().Id;
+        if (selectedFacultyId == 0 && faculties.Any()) selectedFacultyId = faculties.First().Id;
+
+        isDialogVisible = true;
+    }
+
+    private void CloseDialog()
+    {
+        isDialogVisible = false;
+    }
+
+    private async Task SaveUser()
     {
         try
         {
-            // Update profile
-            await Supabase.From<Profile>().Update(editingProfile);
-
-            // Update role-specific data
-            if (editingProfile.Role == Roles.Student)
+            // 1. Update Role
+            var roleResponse = await Http.PutAsJsonAsync($"api/users/{currentUser.Id}/role", new { Role = selectedRole });
+            if (!roleResponse.IsSuccessStatusCode)
             {
-                var student = new Student { Id = editingProfile.Id, GroupId = studentGroupId };
-                await Supabase.From<Student>().Upsert(student);
-            }
-            else if (editingProfile.Role == Roles.Professor || editingProfile.Role == Roles.Dean)
-            {
-                var professor = new Professor { Id = editingProfile.Id, FacultyId = professorFacultyId };
-                await Supabase.From<Professor>().Upsert(professor);
+                Snackbar.Add("Failed to update role", Severity.Error);
+                return;
             }
 
-            Snackbar.Add("Profile updated", Severity.Success);
-            visible = false;
-            await LoadProfiles();
+            // 2. Update specific details based on role
+            if (selectedRole == "student")
+            {
+                var studentRequest = new CreateStudentRequest
+                {
+                    Id = currentUser.Id,
+                    GroupId = selectedGroupId,
+                    RegistrationNumber = registrationNumber
+                };
+                await Http.PostAsJsonAsync("api/students", studentRequest);
+            }
+            else if (selectedRole == "professor" || selectedRole == "dean")
+            {
+                var professorRequest = new CreateProfessorRequest
+                {
+                    Id = currentUser.Id,
+                    FacultyId = selectedFacultyId
+                };
+                await Http.PostAsJsonAsync("api/professors", professorRequest);
+            }
+
+            Snackbar.Add("User updated successfully", Severity.Success);
+            CloseDialog();
+            await LoadData();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error saving profile: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Error saving user: {ex.Message}", Severity.Error);
         }
-    }
-
-    private void Cancel()
-    {
-        visible = false;
     }
 }

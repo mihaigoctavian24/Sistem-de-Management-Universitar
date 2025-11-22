@@ -92,7 +92,7 @@
         var dateStr = selectedDate.Value.ToString("yyyy-MM-dd");
         var attendanceResponse = await Supabase.From<Attendance>()
             .Select("*")
-            .Filter("course_id", Postgrest.Constants.Operator.Equals, selectedCourse.Id)
+            .Filter("course_id", Postgrest.Constants.Operator.Equals, selectedCourse.Id.ToString())
             .Filter("date", Postgrest.Constants.Operator.Equals, dateStr)
             .Get();
         

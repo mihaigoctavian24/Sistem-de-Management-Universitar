@@ -16,69 +16,200 @@ public class GroupsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetGroups([FromQuery] long? programId = null)
+    public async Task<ActionResult<List<GroupDto>>> GetGroups()
     {
-        var query = _supabase.From<Group>();
-        
-        if (programId.HasValue)
+        try
         {
-            var response = await query.Where(g => g.ProgramId == programId.Value).Get();
-            return Ok(response.Models);
+            var response = await _supabase.From<Group>()
+                .Get();
+            
+            var groups = response.Models;
+            
+            // Get programs
+            var programsResponse = await _supabase.From<StudyProgram>()
+                .Get();
+            var programs = programsResponse.Models;
+            
+            var groupDtos = groups.Select(g => new GroupDto
+            {
+                Id = g.Id,
+                Name = g.Name,
+                ProgramId = g.ProgramId,
+                ProgramName = g.ProgramId.HasValue 
+                    ? programs.FirstOrDefault(p => p.Id == g.ProgramId)?.Name 
+                    : null,
+                Year = g.Year,
+                StudentsCount = 0 // Placeholder until we implement students module fully
+            }).ToList();
+
+            return Ok(groupDtos);
         }
-        
-        var allResponse = await query.Get();
-        return Ok(allResponse.Models);
+        catch (Exception ex)
+        {
+            return BadRequest($"Error retrieving groups: {ex.Message}");
+        }
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetGroup(long id)
+    public async Task<ActionResult<GroupDto>> GetGroup(long id)
     {
-        var response = await _supabase.From<Group>().Where(g => g.Id == id).Get();
-        var group = response.Models.FirstOrDefault();
-
-        if (group == null)
+        try
         {
-            return NotFound();
-        }
+            var response = await _supabase.From<Group>()
+                .Where(g => g.Id == id)
+                .Single();
+            
+            if (response == null)
+                return NotFound();
 
-        return Ok(group);
+            var programResponse = await _supabase.From<StudyProgram>()
+                .Where(p => p.Id == response.ProgramId)
+                .Single();
+
+            var groupDto = new GroupDto
+            {
+                Id = response.Id,
+                Name = response.Name,
+                ProgramId = response.ProgramId,
+                ProgramName = programResponse?.Name,
+                Year = response.Year,
+                StudentsCount = 0
+            };
+
+            return Ok(groupDto);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Error retrieving group: {ex.Message}");
+        }
+    }
+
+    [HttpGet("program/{programId}")]
+    public async Task<ActionResult<List<GroupDto>>> GetGroupsByProgram(long programId)
+    {
+        try
+        {
+            var response = await _supabase.From<Group>()
+                .Where(g => g.ProgramId == programId)
+                .Get();
+            
+            var groups = response.Models;
+            
+            var programResponse = await _supabase.From<StudyProgram>()
+                .Where(p => p.Id == programId)
+                .Single();
+
+            var groupDtos = groups.Select(g => new GroupDto
+            {
+                Id = g.Id,
+                Name = g.Name,
+                ProgramId = g.ProgramId,
+                ProgramName = programResponse?.Name,
+                Year = g.Year,
+                StudentsCount = 0
+            }).ToList();
+
+            return Ok(groupDtos);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Error retrieving groups by program: {ex.Message}");
+        }
     }
 
     [HttpPost]
-    [Authorize(Roles = "admin,rector,dean")]
-    public async Task<IActionResult> CreateGroup([FromBody] Group group)
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<GroupDto>> CreateGroup([FromBody] CreateGroupRequest request)
     {
-        if (string.IsNullOrWhiteSpace(group.Name))
+        try
         {
-            return BadRequest("Name is required.");
+            var group = new Group
+            {
+                Name = request.Name,
+                ProgramId = request.ProgramId,
+                Year = request.Year
+            };
+
+            var response = await _supabase.From<Group>()
+                .Insert(group);
+            
+            var created = response.Models.FirstOrDefault();
+            if (created == null)
+                return BadRequest("Failed to create group");
+
+            var groupDto = new GroupDto
+            {
+                Id = created.Id,
+                Name = created.Name,
+                ProgramId = created.ProgramId,
+                Year = created.Year,
+                StudentsCount = 0
+            };
+
+            return CreatedAtAction(nameof(GetGroup), new { id = created.Id }, groupDto);
         }
-
-        var response = await _supabase.From<Group>().Insert(group);
-        var newGroup = response.Models.FirstOrDefault();
-
-        return CreatedAtAction(nameof(GetGroup), new { id = newGroup?.Id }, newGroup);
+        catch (Exception ex)
+        {
+            return BadRequest($"Error creating group: {ex.Message}");
+        }
     }
 
     [HttpPut("{id}")]
-    [Authorize(Roles = "admin,rector,dean")]
-    public async Task<IActionResult> UpdateGroup(long id, [FromBody] Group group)
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<GroupDto>> UpdateGroup(long id, [FromBody] CreateGroupRequest request)
     {
-        var existingResponse = await _supabase.From<Group>().Where(g => g.Id == id).Get();
-        if (!existingResponse.Models.Any())
+        try
         {
-            return NotFound();
-        }
+            var group = new Group
+            {
+                Id = id,
+                Name = request.Name,
+                ProgramId = request.ProgramId,
+                Year = request.Year
+            };
 
-        group.Id = id;
-        var response = await _supabase.From<Group>().Update(group);
-        return Ok(response.Models.FirstOrDefault());
+            var response = await _supabase.From<Group>()
+                .Where(g => g.Id == id)
+                .Update(group);
+            
+            var updated = response.Models.FirstOrDefault();
+            if (updated == null)
+                return NotFound();
+
+            var groupDto = new GroupDto
+            {
+                Id = updated.Id,
+                Name = updated.Name,
+                ProgramId = updated.ProgramId,
+                Year = updated.Year
+            };
+
+            return Ok(groupDto);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Error updating group: {ex.Message}");
+        }
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Roles = "admin,rector,dean")]
-    public async Task<IActionResult> DeleteGroup(long id)
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult> DeleteGroup(long id)
     {
-        await _supabase.From<Group>().Where(g => g.Id == id).Delete();
-        return NoContent();
+        try
+        {
+            // Check if group has students (if we had a generic way to check)
+            // For now, we'll just allow delete but in production we should check
+            
+            await _supabase.From<Group>()
+                .Where(g => g.Id == id)
+                .Delete();
+
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Error deleting group: {ex.Message}");
+        }
     }
 }

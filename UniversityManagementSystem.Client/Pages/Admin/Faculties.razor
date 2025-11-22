@@ -1,119 +1,173 @@
 @page "/admin/faculties"
 @using UniversityManagementSystem.Client.Models
-@using UniversityManagementSystem.Client.Auth
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = Roles.Admin + "," + Roles.Rector)]
-@inject Supabase.Client Supabase
+@attribute [Authorize(Roles = "admin")]
+@inject HttpClient Http
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
-    <MudText Typo="Typo.h4" GutterBottom="true">Faculty Management</MudText>
-    
-    <MudTable Items="@faculties" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
-        <ToolBarContent>
-            <MudText Typo="Typo.h6">Faculties</MudText>
-            <MudSpacer />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenDialog">Add Faculty</MudButton>
-        </ToolBarContent>
-        <HeaderContent>
-            <MudTh>ID</MudTh>
-            <MudTh>Name</MudTh>
-            <MudTh>Dean ID</MudTh>
-            <MudTh>Actions</MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="ID">@context.Id</MudTd>
-            <MudTd DataLabel="Name">@context.Name</MudTd>
-            <MudTd DataLabel="Dean ID">@context.DeanId</MudTd>
-            <MudTd DataLabel="Actions">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditFaculty(context))" />
-                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteFaculty(context))" />
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
+    <div class="d-flex justify-space-between align-center mb-4">
+        <MudText Typo="Typo.h4">Faculties Management</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Add Faculty</MudButton>
+    </div>
+
+    @if (loading)
+    {
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <MudTable Items="@faculties" Hover="true" Striped="true" Filter="new Func<FacultyDto,bool>(FilterFunc)">
+            <ToolBarContent>
+                <MudText Typo="Typo.h6">Faculties List</MudText>
+                <MudSpacer />
+                <MudTextField @bind-Value="searchString" Placeholder="Search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Dean</MudTh>
+                <MudTh>Programs</MudTh>
+                <MudTh>Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Name">@context.Name</MudTd>
+                <MudTd DataLabel="Dean">@(context.DeanName ?? "Not Assigned")</MudTd>
+                <MudTd DataLabel="Programs">@context.ProgramsCount</MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => OpenEditDialog(context))" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteFaculty(context))" />
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager />
+            </PagerContent>
+        </MudTable>
+    }
 </MudContainer>
 
-<MudDialog @bind-Visible="visible" Options="dialogOptions">
+<MudDialog @bind-IsVisible="isDialogVisible">
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            @(editingFaculty.Id == 0 ? "Add Faculty" : "Edit Faculty")
-        </MudText>
+        <MudText Typo="Typo.h6">@(isEditing ? "Edit Faculty" : "Create Faculty")</MudText>
     </TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="editingFaculty.Name" Label="Faculty Name" Required="true" />
+        <MudTextField @bind-Value="currentFaculty.Name" Label="Faculty Name" Required="true" Class="mb-3" />
+        <MudSelect T="Guid?" Label="Dean" @bind-Value="currentFaculty.DeanId" AnchorOrigin="Origin.BottomCenter">
+            <MudSelectItem T="Guid?" Value="null">None</MudSelectItem>
+            @foreach (var profile in potentialDeans)
+            {
+                <MudSelectItem T="Guid?" Value="@profile.Id">@profile.FullName</MudSelectItem>
+            }
+        </MudSelect>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+        <MudButton OnClick="CloseDialog">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="SaveFaculty">Save</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
-    private List<Faculty> faculties = new();
+    private List<FacultyDto> faculties = new();
+    private List<ProfileDto> potentialDeans = new(); // This would need an endpoint to fetch profiles
     private bool loading = true;
-    private bool visible;
-    private Faculty editingFaculty = new();
-    private DialogOptions dialogOptions = new() { FullWidth = true };
+    private string searchString = "";
+    
+    private bool isDialogVisible;
+    private bool isEditing;
+    private CreateFacultyRequest currentFaculty = new();
+    private long currentId;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadFaculties();
+        await LoadData();
     }
 
-    private async Task LoadFaculties()
+    private async Task LoadData()
     {
-        loading = true;
         try
         {
-            var response = await Supabase.From<Faculty>().Get();
-            faculties = response.Models;
+            loading = true;
+            faculties = await Http.GetFromJsonAsync<List<FacultyDto>>("api/faculties") ?? new();
+            
+            // Ideally we fetch potential deans here too, but we don't have that endpoint yet
+            // For now we'll skip dean selection logic or implement a basic profiles endpoint later
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error loading faculties: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
         }
-        loading = false;
-    }
-
-    private void OpenDialog()
-    {
-        editingFaculty = new Faculty();
-        visible = true;
-    }
-
-    private void EditFaculty(Faculty faculty)
-    {
-        editingFaculty = new Faculty 
-        { 
-            Id = faculty.Id, 
-            Name = faculty.Name, 
-            DeanId = faculty.DeanId 
-        };
-        visible = true;
-    }
-
-    private async Task Save()
-    {
-        if (string.IsNullOrWhiteSpace(editingFaculty.Name))
+        finally
         {
-            Snackbar.Add("Name is required", Severity.Warning);
-            return;
+            loading = false;
         }
+    }
 
+    private bool FilterFunc(FacultyDto faculty)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (faculty.Name.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (faculty.DeanName != null && faculty.DeanName.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
+    private void OpenCreateDialog()
+    {
+        currentFaculty = new CreateFacultyRequest();
+        isEditing = false;
+        isDialogVisible = true;
+    }
+
+    private void OpenEditDialog(FacultyDto faculty)
+    {
+        currentFaculty = new CreateFacultyRequest
+        {
+            Name = faculty.Name,
+            DeanId = faculty.DeanId
+        };
+        currentId = faculty.Id;
+        isEditing = true;
+        isDialogVisible = true;
+    }
+
+    private void CloseDialog()
+    {
+        isDialogVisible = false;
+    }
+
+    private async Task SaveFaculty()
+    {
         try
         {
-            if (editingFaculty.Id == 0)
+            if (string.IsNullOrWhiteSpace(currentFaculty.Name))
             {
-                await Supabase.From<Faculty>().Insert(editingFaculty);
-                Snackbar.Add("Faculty added", Severity.Success);
+                Snackbar.Add("Name is required", Severity.Warning);
+                return;
+            }
+
+            HttpResponseMessage response;
+            if (isEditing)
+            {
+                response = await Http.PutAsJsonAsync($"api/faculties/{currentId}", currentFaculty);
             }
             else
             {
-                await Supabase.From<Faculty>().Update(editingFaculty);
-                Snackbar.Add("Faculty updated", Severity.Success);
+                response = await Http.PostAsJsonAsync("api/faculties", currentFaculty);
             }
-            visible = false;
-            await LoadFaculties();
+
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add(isEditing ? "Faculty updated" : "Faculty created", Severity.Success);
+                CloseDialog();
+                await LoadData();
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                Snackbar.Add($"Error: {error}", Severity.Error);
+            }
         }
         catch (Exception ex)
         {
@@ -121,25 +175,28 @@
         }
     }
 
-    private void Cancel()
-    {
-        visible = false;
-    }
-
-    private async Task DeleteFaculty(Faculty faculty)
+    private async Task DeleteFaculty(FacultyDto faculty)
     {
         bool? result = await DialogService.ShowMessageBox(
             "Warning", 
-            "Deleting can not be undone!", 
+            $"Deleting {faculty.Name} can have cascading effects. Are you sure?", 
             yesText:"Delete!", cancelText:"Cancel");
 
         if (result == true)
         {
             try
             {
-                await Supabase.From<Faculty>().Delete(faculty);
-                Snackbar.Add("Faculty deleted", Severity.Success);
-                await LoadFaculties();
+                var response = await Http.DeleteAsync($"api/faculties/{faculty.Id}");
+                if (response.IsSuccessStatusCode)
+                {
+                    Snackbar.Add("Faculty deleted", Severity.Success);
+                    await LoadData();
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    Snackbar.Add($"Error: {error}", Severity.Error);
+                }
             }
             catch (Exception ex)
             {
@@ -147,6 +204,4 @@
             }
         }
     }
-
-    [Inject] private IDialogService DialogService { get; set; } = default!;
 }

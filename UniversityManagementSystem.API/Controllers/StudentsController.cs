@@ -6,7 +6,6 @@ namespace UniversityManagementSystem.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "secretary,admin,professor,dean,rector")]
 public class StudentsController : ControllerBase
 {
     private readonly Supabase.Client _supabase;
@@ -16,86 +15,100 @@ public class StudentsController : ControllerBase
         _supabase = supabase;
     }
 
-    [HttpGet]
-    public async Task<IActionResult> GetStudents()
-    {
-        var response = await _supabase.From<Student>().Get();
-        return Ok(response.Models);
-    }
-
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetStudent(Guid id)
+    [Authorize(Roles = "admin,student")]
+    public async Task<ActionResult<StudentDto>> GetStudent(Guid id)
     {
-        var response = await _supabase.From<Student>()
-            .Where(s => s.Id == id)
-            .Get();
-        var student = response.Models.FirstOrDefault();
-
-        if (student == null)
+        try
         {
-            return NotFound();
+            var response = await _supabase.From<Student>()
+                .Where(s => s.Id == id)
+                .Single();
+            
+            if (response == null)
+                return NotFound();
+
+            var groupName = "";
+            if (response.GroupId.HasValue)
+            {
+                var groupResponse = await _supabase.From<Group>()
+                    .Where(g => g.Id == response.GroupId.Value)
+                    .Single();
+                groupName = groupResponse?.Name ?? "";
+            }
+
+            var studentDto = new StudentDto
+            {
+                Id = response.Id,
+                GroupId = response.GroupId,
+                GroupName = groupName,
+                RegistrationNumber = response.RegistrationNumber,
+                Status = response.Status,
+                EnrollmentDate = response.EnrollmentDate
+            };
+
+            return Ok(studentDto);
         }
-
-        return Ok(student);
-    }
-
-    [HttpGet("group/{groupId}")]
-    public async Task<IActionResult> GetStudentsByGroup(long groupId)
-    {
-        var response = await _supabase.From<Student>()
-            .Where(s => s.GroupId == groupId)
-            .Get();
-        return Ok(response.Models);
+        catch (Exception ex)
+        {
+            return BadRequest($"Error retrieving student details: {ex.Message}");
+        }
     }
 
     [HttpPost]
-    [Authorize(Roles = "secretary,admin")]
-    public async Task<IActionResult> CreateStudent([FromBody] Student student)
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<StudentDto>> CreateOrUpdateStudent([FromBody] CreateStudentRequest request)
     {
-        var response = await _supabase.From<Student>().Insert(student);
-        var created = response.Models.FirstOrDefault();
-        return CreatedAtAction(nameof(GetStudent), new { id = created?.Id }, created);
-    }
-
-    [HttpPut("{id}")]
-    [Authorize(Roles = "secretary,admin")]
-    public async Task<IActionResult> UpdateStudent(Guid id, [FromBody] Student student)
-    {
-        var existingResponse = await _supabase.From<Student>()
-            .Where(s => s.Id == id)
-            .Get();
-        
-        if (!existingResponse.Models.Any())
+        try
         {
-            return NotFound();
+            var student = new Student
+            {
+                Id = request.Id,
+                GroupId = request.GroupId,
+                RegistrationNumber = request.RegistrationNumber,
+                Status = "active",
+                EnrollmentDate = DateTime.UtcNow
+            };
+
+            // Upsert logic (Insert or Update)
+            var response = await _supabase.From<Student>()
+                .Upsert(student);
+            
+            var created = response.Models.FirstOrDefault();
+            if (created == null)
+                return BadRequest("Failed to save student details");
+
+            var studentDto = new StudentDto
+            {
+                Id = created.Id,
+                GroupId = created.GroupId,
+                RegistrationNumber = created.RegistrationNumber,
+                Status = created.Status,
+                EnrollmentDate = created.EnrollmentDate
+            };
+
+            return Ok(studentDto);
         }
-
-        student.Id = id;
-        var response = await _supabase.From<Student>().Update(student);
-        return Ok(response.Models.FirstOrDefault());
-    }
-
-    [HttpPut("{id}/status")]
-    [Authorize(Roles = "secretary,admin")]
-    public async Task<IActionResult> UpdateStudentStatus(Guid id, [FromBody] StudentStatusUpdate statusUpdate)
-    {
-        var existingResponse = await _supabase.From<Student>()
-            .Where(s => s.Id == id)
-            .Get();
-        
-        var student = existingResponse.Models.FirstOrDefault();
-        if (student == null)
+        catch (Exception ex)
         {
-            return NotFound();
+            return BadRequest($"Error saving student details: {ex.Message}");
         }
-
-        student.Status = statusUpdate.Status;
-        var response = await _supabase.From<Student>().Update(student);
-        return Ok(response.Models.FirstOrDefault());
     }
 }
 
-public class StudentStatusUpdate
+public class StudentDto
 {
+    public Guid Id { get; set; }
+    public long? GroupId { get; set; }
+    public string? GroupName { get; set; }
+    public string? RegistrationNumber { get; set; }
     public string Status { get; set; } = string.Empty;
+    public DateTime? EnrollmentDate { get; set; }
+}
+
+public class CreateStudentRequest
+{
+    public Guid Id { get; set; }
+    public long GroupId { get; set; }
+    public string RegistrationNumber { get; set; } = string.Empty;
 }

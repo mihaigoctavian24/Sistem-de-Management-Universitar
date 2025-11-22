@@ -1,166 +1,189 @@
 @page "/admin/programs"
 @using UniversityManagementSystem.Client.Models
-@using UniversityManagementSystem.Client.Auth
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = Roles.Admin + "," + Roles.Rector + "," + Roles.Dean)]
-@inject Supabase.Client Supabase
+@attribute [Authorize(Roles = "admin")]
+@inject HttpClient Http
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
-    <MudText Typo="Typo.h4" GutterBottom="true">Program Management</MudText>
-    
-    <MudPaper Class="pa-4 mb-4">
-        <MudSelect T="long?" Label="Filter by Faculty" @bind-Value="selectedFacultyId" Clearable="true">
-            @foreach (var faculty in faculties)
-            {
-                <MudSelectItem T="long?" Value="@faculty.Id">@faculty.Name</MudSelectItem>
-            }
-        </MudSelect>
-    </MudPaper>
-    
-    <MudTable Items="@filteredPrograms" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@loading" LoadingProgressColor="Color.Info">
-        <ToolBarContent>
-            <MudText Typo="Typo.h6">Programs</MudText>
-            <MudSpacer />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenDialog">Add Program</MudButton>
-        </ToolBarContent>
-        <HeaderContent>
-            <MudTh>ID</MudTh>
-            <MudTh>Name</MudTh>
-            <MudTh>Faculty</MudTh>
-            <MudTh>Actions</MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="ID">@context.Id</MudTd>
-            <MudTd DataLabel="Name">@context.Name</MudTd>
-            <MudTd DataLabel="Faculty">@GetFacultyName(context.FacultyId)</MudTd>
-            <MudTd DataLabel="Actions">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => EditProgram(context))" />
-                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteProgram(context))" />
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
+    <div class="d-flex justify-space-between align-center mb-4">
+        <MudText Typo="Typo.h4">Programs Management</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Add Program</MudButton>
+    </div>
+
+    @if (loading)
+    {
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <MudTable Items="@programs" Hover="true" Striped="true" Filter="new Func<ProgramDto,bool>(FilterFunc)">
+            <ToolBarContent>
+                <MudText Typo="Typo.h6">Programs List</MudText>
+                <MudSpacer />
+                <MudTextField @bind-Value="searchString" Placeholder="Search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Faculty</MudTh>
+                <MudTh>Type</MudTh>
+                <MudTh>Duration (Years)</MudTh>
+                <MudTh>Groups</MudTh>
+                <MudTh>Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Name">@context.Name</MudTd>
+                <MudTd DataLabel="Faculty">@context.FacultyName</MudTd>
+                <MudTd DataLabel="Type">@context.StudyType</MudTd>
+                <MudTd DataLabel="Duration">@context.Duration</MudTd>
+                <MudTd DataLabel="Groups">@context.GroupsCount</MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => OpenEditDialog(context))" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteProgram(context))" />
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager />
+            </PagerContent>
+        </MudTable>
+    }
 </MudContainer>
 
-<MudDialog @bind-Visible="visible" Options="dialogOptions">
+<MudDialog @bind-IsVisible="isDialogVisible">
     <TitleContent>
-        <MudText Typo="Typo.h6">
-            @(editingProgram.Id == 0 ? "Add Program" : "Edit Program")
-        </MudText>
+        <MudText Typo="Typo.h6">@(isEditing ? "Edit Program" : "Create Program")</MudText>
     </TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="editingProgram.Name" Label="Program Name" Required="true" />
-        <MudSelect T="long" @bind-Value="editingProgram.FacultyId" Label="Faculty" Required="true">
+        <MudTextField @bind-Value="currentProgram.Name" Label="Program Name" Required="true" Class="mb-3" />
+        
+        <MudSelect T="long" Label="Faculty" @bind-Value="currentProgram.FacultyId" AnchorOrigin="Origin.BottomCenter" Required="true" Class="mb-3">
             @foreach (var faculty in faculties)
             {
                 <MudSelectItem T="long" Value="@faculty.Id">@faculty.Name</MudSelectItem>
             }
         </MudSelect>
+
+        <MudSelect T="string" Label="Study Type" @bind-Value="currentProgram.StudyType" AnchorOrigin="Origin.BottomCenter" Class="mb-3">
+            <MudSelectItem Value="@("Bachelor")">Bachelor</MudSelectItem>
+            <MudSelectItem Value="@("Master")">Master</MudSelectItem>
+            <MudSelectItem Value="@("PhD")">PhD</MudSelectItem>
+        </MudSelect>
+
+        <MudNumericField @bind-Value="currentProgram.Duration" Label="Duration (Years)" Min="1" Max="6" Class="mb-3" />
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+        <MudButton OnClick="CloseDialog">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="SaveProgram">Save</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
-    private List<StudyProgram> programs = new();
-    private List<Faculty> faculties = new();
+    private List<ProgramDto> programs = new();
+    private List<FacultyDto> faculties = new();
     private bool loading = true;
-    private bool visible;
-    private StudyProgram editingProgram = new();
-    private DialogOptions dialogOptions = new() { FullWidth = true };
-    private long? selectedFacultyId;
-
-    private IEnumerable<StudyProgram> filteredPrograms => 
-        selectedFacultyId.HasValue 
-            ? programs.Where(p => p.FacultyId == selectedFacultyId.Value) 
-            : programs;
+    private string searchString = "";
+    
+    private bool isDialogVisible;
+    private bool isEditing;
+    private CreateProgramRequest currentProgram = new();
+    private long currentId;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadFaculties();
-        await LoadPrograms();
+        await LoadData();
     }
 
-    private async Task LoadFaculties()
+    private async Task LoadData()
     {
         try
         {
-            var response = await Supabase.From<Faculty>().Get();
-            faculties = response.Models;
+            loading = true;
+            programs = await Http.GetFromJsonAsync<List<ProgramDto>>("api/programs") ?? new();
+            faculties = await Http.GetFromJsonAsync<List<FacultyDto>>("api/faculties") ?? new();
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error loading faculties: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
         }
-    }
-
-    private async Task LoadPrograms()
-    {
-        loading = true;
-        try
+        finally
         {
-            var response = await Supabase.From<StudyProgram>().Get();
-            programs = response.Models;
+            loading = false;
         }
-        catch (Exception ex)
+    }
+
+    private bool FilterFunc(ProgramDto program)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (program.Name.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (program.FacultyName != null && program.FacultyName.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
+    private void OpenCreateDialog()
+    {
+        currentProgram = new CreateProgramRequest();
+        if (faculties.Any())
         {
-            Snackbar.Add($"Error loading programs: {ex.Message}", Severity.Error);
+            currentProgram.FacultyId = faculties.First().Id;
         }
-        loading = false;
+        isEditing = false;
+        isDialogVisible = true;
     }
 
-    private string GetFacultyName(long facultyId)
+    private void OpenEditDialog(ProgramDto program)
     {
-        return faculties.FirstOrDefault(f => f.Id == facultyId)?.Name ?? "Unknown";
-    }
-
-    private void OpenDialog()
-    {
-        editingProgram = new StudyProgram();
-        visible = true;
-    }
-
-    private void EditProgram(StudyProgram program)
-    {
-        editingProgram = new StudyProgram 
-        { 
-            Id = program.Id, 
-            Name = program.Name, 
-            FacultyId = program.FacultyId 
+        currentProgram = new CreateProgramRequest
+        {
+            Name = program.Name,
+            FacultyId = program.FacultyId ?? (faculties.FirstOrDefault()?.Id ?? 0),
+            StudyType = program.StudyType ?? "Bachelor",
+            Duration = program.Duration ?? 3
         };
-        visible = true;
+        currentId = program.Id;
+        isEditing = true;
+        isDialogVisible = true;
     }
 
-    private async Task Save()
+    private void CloseDialog()
     {
-        if (string.IsNullOrWhiteSpace(editingProgram.Name))
-        {
-            Snackbar.Add("Name is required", Severity.Warning);
-            return;
-        }
+        isDialogVisible = false;
+    }
 
-        if (editingProgram.FacultyId == 0)
-        {
-            Snackbar.Add("Faculty is required", Severity.Warning);
-            return;
-        }
-
+    private async Task SaveProgram()
+    {
         try
         {
-            if (editingProgram.Id == 0)
+            if (string.IsNullOrWhiteSpace(currentProgram.Name))
             {
-                await Supabase.From<StudyProgram>().Insert(editingProgram);
-                Snackbar.Add("Program added", Severity.Success);
+                Snackbar.Add("Name is required", Severity.Warning);
+                return;
+            }
+
+            HttpResponseMessage response;
+            if (isEditing)
+            {
+                response = await Http.PutAsJsonAsync($"api/programs/{currentId}", currentProgram);
             }
             else
             {
-                await Supabase.From<StudyProgram>().Update(editingProgram);
-                Snackbar.Add("Program updated", Severity.Success);
+                response = await Http.PostAsJsonAsync("api/programs", currentProgram);
             }
-            visible = false;
-            await LoadPrograms();
+
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add(isEditing ? "Program updated" : "Program created", Severity.Success);
+                CloseDialog();
+                await LoadData();
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                Snackbar.Add($"Error: {error}", Severity.Error);
+            }
         }
         catch (Exception ex)
         {
@@ -168,25 +191,28 @@
         }
     }
 
-    private void Cancel()
-    {
-        visible = false;
-    }
-
-    private async Task DeleteProgram(StudyProgram program)
+    private async Task DeleteProgram(ProgramDto program)
     {
         bool? result = await DialogService.ShowMessageBox(
             "Warning", 
-            "Deleting can not be undone!", 
+            $"Deleting {program.Name} can have cascading effects. Are you sure?", 
             yesText:"Delete!", cancelText:"Cancel");
 
         if (result == true)
         {
             try
             {
-                await Supabase.From<StudyProgram>().Delete(program);
-                Snackbar.Add("Program deleted", Severity.Success);
-                await LoadPrograms();
+                var response = await Http.DeleteAsync($"api/programs/{program.Id}");
+                if (response.IsSuccessStatusCode)
+                {
+                    Snackbar.Add("Program deleted", Severity.Success);
+                    await LoadData();
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    Snackbar.Add($"Error: {error}", Severity.Error);
+                }
             }
             catch (Exception ex)
             {
@@ -194,6 +220,4 @@
             }
         }
     }
-
-    [Inject] private IDialogService DialogService { get; set; } = default!;
 }

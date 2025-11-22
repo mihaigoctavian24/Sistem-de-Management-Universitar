@@ -36,12 +36,33 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             new Claim(ClaimTypes.Email, user.Email ?? "")
         };
 
-        if (user.UserMetadata != null)
+        try
         {
-             if (user.UserMetadata.TryGetValue("role", out var roleObj))
-             {
-                 claims.Add(new Claim(ClaimTypes.Role, roleObj?.ToString() ?? "student"));
-             }
+            var profileResponse = await _supabaseClient.From<UniversityManagementSystem.Client.Models.Profile>()
+                .Select("role")
+                .Where(p => p.Id == Guid.Parse(user.Id))
+                .Single();
+
+            if (profileResponse != null && !string.IsNullOrEmpty(profileResponse.Role))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, profileResponse.Role));
+            }
+            else
+            {
+                // Fallback to metadata
+                if (user.UserMetadata != null && user.UserMetadata.TryGetValue("role", out var roleObj))
+                {
+                    claims.Add(new Claim(ClaimTypes.Role, roleObj?.ToString() ?? "student"));
+                }
+            }
+        }
+        catch
+        {
+            // Fallback to metadata on error
+            if (user.UserMetadata != null && user.UserMetadata.TryGetValue("role", out var roleObj))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, roleObj?.ToString() ?? "student"));
+            }
         }
 
         var identity = new ClaimsIdentity(claims, "Supabase");
